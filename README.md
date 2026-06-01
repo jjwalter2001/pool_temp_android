@@ -71,6 +71,45 @@ Values are stored in app-private DataStore; uninstalling the app wipes them.
 
 5. For future updates, bump `versionCode` (and optionally `versionName`) in `app/build.gradle.kts`, rebuild, and reinstall on each phone. The keystore must match every time — Android refuses to upgrade an app whose signature changed.
 
+## Pushing updates to the family via Firebase App Distribution
+
+Sideloading is fine for the first install but tedious for updates. Firebase App Distribution lets you push new builds to family members from a single gradle command; recipients install via Firebase's "App Tester" helper app and get a notification on every release. Free, no Play Console required.
+
+**One-time setup:**
+
+1. Create a Firebase project at https://console.firebase.google.com — pick "Add app → Android", use the package name `com.jjwalter.pooltemp`. You don't need `google-services.json` for App Distribution; the only field that matters is the App ID (looks like `1:1234567890:android:abcdef…`).
+2. In the Firebase console, open *App Distribution → Testers & groups* and add the family emails (or create a group like `family`).
+3. Install the Firebase CLI on this machine (one-time):
+
+   ```
+   npm install -g firebase-tools
+   firebase login:ci
+   ```
+
+   The second command opens a browser to authenticate, then prints a refresh token. Stash it in your shell profile or set it before each release:
+
+   ```
+   $env:FIREBASE_TOKEN = "1//0abc...your-token..."
+   ```
+
+4. Copy `firebase.properties.example` to `firebase.properties` (gitignored) and fill in `appId` + `testers`. Optionally use `groups` instead once the email list grows.
+
+**Each release:**
+
+```
+./gradlew :app:assembleRelease :app:appDistributionUploadRelease
+```
+
+The signed APK is uploaded to Firebase and every tester gets an email + push notification. The first time they tap the invite, they install the Firebase App Tester app once; after that, each new build is a single tap to update.
+
+Release notes default to `Pool Temp <versionName> (build <versionCode>)`. Override per release with:
+
+```
+./gradlew :app:appDistributionUploadRelease -PreleaseNotes="Fixes heater button on Pixel 6"
+```
+
+**Updating the family without recompiling:** You don't need to. Just bump `versionCode` in `app/build.gradle.kts` and run the gradle command above — the previously installed app updates in place because it's signed with the same keystore.
+
 ## Settings (after first launch)
 
 The in-app Settings screen lets you:

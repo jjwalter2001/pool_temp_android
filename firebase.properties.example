@@ -1,0 +1,24 @@
+# Copy this to firebase.properties (gitignored) to enable App Distribution
+# uploads via ./gradlew :app:appDistributionUploadRelease.
+#
+# appId
+#   Firebase console -> Project Settings -> Your apps -> App ID
+#   Format: "1:1234567890:android:abcdef0123456789"
+#
+# testers
+#   Comma-separated email addresses. Each tester gets an invite email and
+#   installs via the Firebase "App Tester" app on their phone.
+#
+# groups
+#   Optional. Comma-separated tester-group aliases from the Firebase console
+#   (e.g. "family"). Use this once the list grows past a handful of emails.
+#
+# serviceCredentialsFile
+#   Optional path (relative to project root) to a Google service-account
+#   JSON with the "firebaseappdistro.releases.write" role. Use this OR the
+#   FIREBASE_TOKEN env var (see README). Leave blank to use the env var.
+
+appId=1:1234567890:android:abcdef0123456789
+testers=you@example.com,family@example.com
+groups=
+serviceCredentialsFile=

@@ -12,11 +12,12 @@ out/
 .vscode/
 .fleet/
 
-# Local config (signing, SDK paths, secrets). keystore.properties.example
-# is the checked-in template; keystore.properties has the real values and
-# stays out of git.
+# Local config (signing, SDK paths, secrets). The *.example files are the
+# checked-in templates; the real-value variants stay out of git.
 local.properties
 keystore.properties
+firebase.properties
+firebase-credentials.json
 *.jks
 *.keystore
 
