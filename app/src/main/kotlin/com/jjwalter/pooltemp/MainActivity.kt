@@ -1,17 +1,25 @@
 package com.jjwalter.pooltemp
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.jjwalter.pooltemp.notification.Scheduler
 import com.jjwalter.pooltemp.ui.dashboard.DashboardScreen
 import com.jjwalter.pooltemp.ui.onboarding.OnboardingScreen
 import com.jjwalter.pooltemp.ui.settings.SettingsScreen
@@ -25,11 +33,35 @@ class MainActivity : ComponentActivity() {
         setContent {
             PoolTempTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
+                    // Notification permission is runtime-prompted on
+                    // Android 13+. Denial is non-fatal -- the worker still
+                    // runs, it just can't surface its notification.
+                    val notifPerm = rememberLauncherForActivityResult(
+                        ActivityResultContracts.RequestPermission(),
+                    ) { /* result ignored */ }
+                    LaunchedEffect(Unit) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                            ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.POST_NOTIFICATIONS,
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notifPerm.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+
                     val nav = rememberNavController()
                     val hasConfig by app.settings.hasConfig.collectAsState(initial = null)
-                    // Decide start destination once settings have loaded. null
-                    // means "still loading" -- show a blank Surface for one
-                    // frame rather than flash the wrong screen.
+
+                    // Idempotent: WorkManager's unique-name policy keeps the
+                    // single registration. Re-keying on hasConfig means the
+                    // worker enqueues immediately when onboarding completes.
+                    LaunchedEffect(hasConfig) {
+                        if (hasConfig == true) Scheduler.schedule(this@MainActivity)
+                    }
+
+                    // Wait until settings have loaded before picking a start
+                    // destination -- avoids flashing the wrong screen.
                     val start = when (hasConfig) {
                         null -> null
                         true -> "dashboard"

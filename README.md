@@ -5,11 +5,11 @@ Native Android companion app for the [pool_temp](https://github.com/jjwalter2001
 ## Status
 
 - ✅ Phase 1 — backend hardening (shipped in pool_temp v1.4.0)
-- 🚧 Phase 2 — Android project scaffold (this commit)
-- ⏳ Phase 3 — Dashboard + heater control
-- ⏳ Phase 4 — 24h temp sparkline
-- ⏳ Phase 5 — Persistent notification (WorkManager, 30 min cadence)
-- ⏳ Phase 6 — Settings + signed APK for family sideloading
+- ✅ Phase 2 — Android project scaffold
+- ✅ Phase 3 — Dashboard + heater control (with confirm dialog)
+- ✅ Phase 4 — 24h temp sparkline on each sensor card
+- ✅ Phase 5 — Persistent notification via WorkManager (30 min cadence)
+- ⏳ Phase 6 — Settings polish + signed APK for family sideloading
 
 ## Architecture
 

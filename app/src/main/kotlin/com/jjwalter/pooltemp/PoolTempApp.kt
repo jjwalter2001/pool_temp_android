@@ -2,17 +2,22 @@ package com.jjwalter.pooltemp
 
 import android.app.Application
 import com.jjwalter.pooltemp.data.Settings
+import com.jjwalter.pooltemp.notification.NotificationPublisher
 
 /**
- * Application singleton. Holds the [Settings] handle and (later, in Phase 5)
- * the WorkManager scheduling for the persistent pool-temp notification.
+ * Application singleton. Holds the [Settings] handle. The notification
+ * channel is registered eagerly here so a Worker that survives across
+ * process restarts never hits an "unknown channel" path.
+ *
+ * WorkManager scheduling itself lives in MainActivity (keyed off
+ * Settings.hasConfig) so it doesn't run until the user has finished
+ * onboarding.
  */
 class PoolTempApp : Application() {
     val settings: Settings by lazy { Settings(this) }
 
     override fun onCreate() {
         super.onCreate()
-        // Phase 5 will schedule the periodic refresh worker here once the
-        // user has completed onboarding (settings.hasConfig.first() == true).
+        NotificationPublisher.ensureChannel(this)
     }
 }
