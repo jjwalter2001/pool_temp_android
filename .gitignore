@@ -1,0 +1,30 @@
+# Gradle / Android build output
+.gradle/
+build/
+/build/
+out/
+*.iml
+
+# IDE / editor
+.idea/
+*.iws
+*.ipr
+.vscode/
+.fleet/
+
+# Local config (signing, SDK paths, secrets)
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Generated
+captures/
+.cxx/
+
+# Claude commit-message scratch file
+.commitmsg.tmp
