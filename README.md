@@ -9,7 +9,7 @@ Native Android companion app for the [pool_temp](https://github.com/jjwalter2001
 - ✅ Phase 3 — Dashboard + heater control (with confirm dialog)
 - ✅ Phase 4 — 24h temp sparkline on each sensor card
 - ✅ Phase 5 — Persistent notification via WorkManager (30 min cadence)
-- ⏳ Phase 6 — Settings polish + signed APK for family sideloading
+- ✅ Phase 6 — Editable settings, notification toggle, release-signing config
 
 ## Architecture
 
@@ -46,3 +46,35 @@ The Onboarding screen captures everything needed to reach your instance:
 | Your name | What appears in the heater event log when you flip it on/off |
 
 Values are stored in app-private DataStore; uninstalling the app wipes them.
+
+## Release builds for family sideloading
+
+1. Generate a release keystore (once — keep it safe; you can't sign updates without it):
+
+   ```
+   keytool -genkeypair -v -keystore pool_temp.jks \
+     -keyalg RSA -keysize 2048 -validity 10000 \
+     -alias pooltemp
+   ```
+
+2. Copy `keystore.properties.example` to `keystore.properties` and fill in the real values. Both files live at the project root; `keystore.properties` and `*.jks` are gitignored.
+
+3. Build a signed release APK:
+
+   ```
+   ./gradlew :app:assembleRelease
+   ```
+
+   The signed APK lands in `app/build/outputs/apk/release/`.
+
+4. Sideload to each phone (USB transfer, Bluetooth, Drive, etc.) and tap to install. Recipients need to allow "Install unknown apps" for the source they use.
+
+5. For future updates, bump `versionCode` (and optionally `versionName`) in `app/build.gradle.kts`, rebuild, and reinstall on each phone. The keystore must match every time — Android refuses to upgrade an app whose signature changed.
+
+## Settings (after first launch)
+
+The in-app Settings screen lets you:
+
+- **Edit connection** — re-runs the onboarding form prefilled with your saved values.
+- **Toggle the persistent notification** — when off, the periodic worker is cancelled and the existing notification is cleared. When on, the worker re-schedules immediately.
+- **Forget configuration** — wipes DataStore and cancels the worker; the app drops back to onboarding.

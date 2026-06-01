@@ -51,13 +51,19 @@ class MainActivity : ComponentActivity() {
                     }
 
                     val nav = rememberNavController()
-                    val hasConfig by app.settings.hasConfig.collectAsState(initial = null)
+                    val config by app.settings.config.collectAsState(initial = null)
+                    val hasConfig = config?.isComplete
 
-                    // Idempotent: WorkManager's unique-name policy keeps the
-                    // single registration. Re-keying on hasConfig means the
-                    // worker enqueues immediately when onboarding completes.
-                    LaunchedEffect(hasConfig) {
-                        if (hasConfig == true) Scheduler.schedule(this@MainActivity)
+                    // Idempotent: WorkManager's unique-name policy keeps a
+                    // single registration. Re-keys on either flag so the
+                    // worker enqueues when onboarding completes AND respects
+                    // the user's notification preference.
+                    LaunchedEffect(hasConfig, config?.notificationsEnabled) {
+                        if (hasConfig == true && config?.notificationsEnabled == true) {
+                            Scheduler.schedule(this@MainActivity)
+                        } else {
+                            Scheduler.cancel(this@MainActivity)
+                        }
                     }
 
                     // Wait until settings have loaded before picking a start
@@ -88,6 +94,19 @@ class MainActivity : ComponentActivity() {
                             SettingsScreen(
                                 settings = app.settings,
                                 onBack = { nav.popBackStack() },
+                                onEdit = {
+                                    nav.navigate("onboarding") {
+                                        popUpTo("dashboard")
+                                    }
+                                },
+                                onReset = {
+                                    // After settings.clear(), config becomes
+                                    // incomplete so MainActivity will route
+                                    // to onboarding on the next recomposition.
+                                    nav.navigate("onboarding") {
+                                        popUpTo(0) { inclusive = true }
+                                    }
+                                },
                             )
                         }
                     }

@@ -1,6 +1,7 @@
 package com.jjwalter.pooltemp.data
 
 import android.content.Context
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -28,6 +29,10 @@ class Settings(private val context: Context) {
         val apiToken: String,
         /** Family-member name attached to heater toggles via X-User. */
         val userName: String,
+        /** When true, MainActivity keeps the periodic notification worker
+         *  scheduled. When false, the worker is cancelled and the ongoing
+         *  notification is cleared. Default true. */
+        val notificationsEnabled: Boolean = true,
     ) {
         val isComplete: Boolean get() =
             baseUrl.isNotBlank() &&
@@ -42,6 +47,7 @@ class Settings(private val context: Context) {
         val CF_CLIENT_SECRET = stringPreferencesKey("cf_client_secret")
         val API_TOKEN = stringPreferencesKey("api_token")
         val USER_NAME = stringPreferencesKey("user_name")
+        val NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
     }
 
     val config: Flow<Config> = context.dataStore.data.map { prefs ->
@@ -51,6 +57,7 @@ class Settings(private val context: Context) {
             cfClientSecret = prefs[Keys.CF_CLIENT_SECRET].orEmpty(),
             apiToken = prefs[Keys.API_TOKEN].orEmpty(),
             userName = prefs[Keys.USER_NAME].orEmpty(),
+            notificationsEnabled = prefs[Keys.NOTIFICATIONS_ENABLED] ?: true,
         )
     }
 
@@ -65,6 +72,17 @@ class Settings(private val context: Context) {
             prefs[Keys.CF_CLIENT_SECRET] = c.cfClientSecret.trim()
             prefs[Keys.API_TOKEN] = c.apiToken.trim()
             prefs[Keys.USER_NAME] = c.userName.trim()
+            prefs[Keys.NOTIFICATIONS_ENABLED] = c.notificationsEnabled
         }
+    }
+
+    suspend fun setNotificationsEnabled(enabled: Boolean) {
+        context.dataStore.edit { it[Keys.NOTIFICATIONS_ENABLED] = enabled }
+    }
+
+    /** Wipes everything. Caller is responsible for cancelling background
+     *  work (Scheduler.cancel) before or after. */
+    suspend fun clear() {
+        context.dataStore.edit { it.clear() }
     }
 }

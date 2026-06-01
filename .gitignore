@@ -12,7 +12,9 @@ out/
 .vscode/
 .fleet/
 
-# Local config (signing, SDK paths, secrets)
+# Local config (signing, SDK paths, secrets). keystore.properties.example
+# is the checked-in template; keystore.properties has the real values and
+# stays out of git.
 local.properties
 keystore.properties
 *.jks
