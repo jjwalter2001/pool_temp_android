@@ -1,36 +1,109 @@
 package com.jjwalter.pooltemp.ui.dashboard
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Thermostat
+import androidx.compose.material.icons.outlined.WbSunny
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Snackbar
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jjwalter.pooltemp.data.Reading
+import com.jjwalter.pooltemp.data.Settings
+import com.jjwalter.pooltemp.data.SwitchState
+import com.jjwalter.pooltemp.data.Weather
+import com.jjwalter.pooltemp.ui.theme.Danger
+import com.jjwalter.pooltemp.ui.theme.HeaterOff
+import com.jjwalter.pooltemp.ui.theme.HeaterOn
+import com.jjwalter.pooltemp.ui.theme.PoolAccent
+import com.jjwalter.pooltemp.ui.theme.PoolAccentDim
+import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
+import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
+import kotlinx.coroutines.delay
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-/**
- * Phase 2: placeholder. Phase 3 turns this into the real dashboard --
- * current pool/ambient readings, weather card, heater state with on/off
- * toggle, last-updated badge.
- */
-@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+private const val AUTO_REFRESH_MS = 60_000L
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(
+    settings: Settings,
     onOpenSettings: () -> Unit,
 ) {
+    val vm: DashboardViewModel = viewModel(factory = DashboardViewModelFactory(settings))
+    val state by vm.state.collectAsState()
+    val snackbar = remember { SnackbarHostState() }
+
+    // Auto-refresh every minute while the screen is in composition. Pauses
+    // automatically when the user navigates to Settings.
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(AUTO_REFRESH_MS)
+            vm.refresh()
+        }
+    }
+
+    // Surface errors as a snackbar without dropping out of the dashboard.
+    LaunchedEffect(state.error) {
+        state.error?.let {
+            snackbar.showSnackbar(it)
+            vm.clearError()
+        }
+    }
+
+    var pendingToggle by remember { mutableStateOf<Boolean?>(null) }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -45,30 +118,336 @@ fun DashboardScreen(
                 ),
             )
         },
+        snackbarHost = {
+            SnackbarHost(snackbar) { data ->
+                Snackbar(
+                    snackbarData = data,
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    contentColor = Danger,
+                )
+            }
+        },
     ) { padding: PaddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .padding(24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            when {
+                state.initialLoading -> InitialLoading()
+                else -> PullToRefreshBox(
+                    isRefreshing = state.refreshing,
+                    onRefresh = { vm.refresh() },
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        item { LastUpdated(state.lastFetchedMs) }
+                        state.switch?.let { sw ->
+                            if (sw.state != null) {
+                                item {
+                                    HeaterCard(
+                                        switch = sw,
+                                        pending = state.heaterPending,
+                                        onToggle = { pendingToggle = it },
+                                    )
+                                }
+                            }
+                        }
+                        if (state.readings.isNotEmpty()) {
+                            items(state.readings, key = { it.deviceId }) { r ->
+                                ReadingCard(r)
+                            }
+                        }
+                        state.weather?.let { w ->
+                            item { WeatherCard(w) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pendingToggle?.let { wantOn ->
+        AlertDialog(
+            onDismissRequest = { pendingToggle = null },
+            title = {
+                Text(if (wantOn) "Turn pool heater ON?" else "Turn pool heater OFF?")
+            },
+            text = {
                 Text(
-                    "Dashboard coming in Phase 3",
+                    if (wantOn)
+                        "This sends the ON command to the Tuya switch. Your name will be logged on the event."
+                    else
+                        "This sends the OFF command to the Tuya switch. Your name will be logged on the event."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingToggle = null
+                    vm.setHeater(wantOn)
+                }) {
+                    Text(if (wantOn) "Turn ON" else "Turn OFF")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingToggle = null }) { Text("Cancel") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun InitialLoading() {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            CircularProgressIndicator(color = PoolAccent)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Connecting to your pool…",
+                style = MaterialTheme.typography.bodyMedium,
+                color = PoolOnSurfaceMuted,
+            )
+        }
+    }
+}
+
+@Composable
+private fun LastUpdated(ms: Long?) {
+    val text = ms?.let { agoString(System.currentTimeMillis() - it) } ?: "—"
+    Text(
+        "Last updated $text",
+        style = MaterialTheme.typography.labelLarge,
+        color = PoolOnSurfaceMuted,
+        modifier = Modifier.fillMaxWidth().padding(start = 4.dp),
+    )
+}
+
+@Composable
+private fun HeaterCard(
+    switch: SwitchState,
+    pending: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    val on = switch.state == 1
+    val accent = if (on) HeaterOn else HeaterOff
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Bolt,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Pool Heater",
                     style = MaterialTheme.typography.titleLarge,
-                    textAlign = TextAlign.Center,
+                    color = PoolOnSurface,
                 )
-                Text(
-                    "Configuration looks good — the app is connected and ready to render readings once the dashboard lands.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                )
+                Spacer(Modifier.width(12.dp))
+                StatusPill(text = if (on) "ON" else "OFF", color = accent)
+            }
+            Spacer(Modifier.height(8.dp))
+            val since = switch.ts?.let { sinceString(it) } ?: "—"
+            val who = switch.user?.takeIf { it.isNotBlank() }?.let { " by $it" } ?: ""
+            Text(
+                "${if (on) "Running" else "Idle"} since $since$who",
+                style = MaterialTheme.typography.bodyMedium,
+                color = PoolOnSurfaceMuted,
+            )
+            Spacer(Modifier.height(16.dp))
+            if (on) {
+                OutlinedButton(
+                    onClick = { onToggle(false) },
+                    enabled = !pending,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (pending) "Sending…" else "Turn OFF")
+                }
+            } else {
+                Button(
+                    onClick = { onToggle(true) },
+                    enabled = !pending,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = HeaterOn,
+                        contentColor = Color.Black,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (pending) "Sending…" else "Turn ON")
+                }
             }
         }
     }
 }
+
+@Composable
+private fun ReadingCard(r: Reading) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Thermostat,
+                    contentDescription = null,
+                    tint = PoolAccent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    r.name ?: r.deviceId,
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PoolOnSurface,
+                    overflow = TextOverflow.Ellipsis,
+                    maxLines = 1,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    text = formatTempF(r.temperatureF),
+                    style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = PoolAccent,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "°F",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PoolAccentDim,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+            r.temperatureC?.let {
+                Text(
+                    "${String.format(Locale.US, "%.1f", it)} °C",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = PoolOnSurfaceMuted,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                r.humidity?.let {
+                    SubMetric("Humidity", "${String.format(Locale.US, "%.0f", it)}%")
+                }
+                r.battery?.let {
+                    SubMetric("Battery", "$it%")
+                }
+                r.lastUpdateAgo?.let {
+                    SubMetric("Updated", agoString(it * 1000L))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeatherCard(w: Weather) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.WbSunny,
+                    contentDescription = null,
+                    tint = HeaterOn,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Weather",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PoolOnSurface,
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Text(
+                    formatTempF(w.airTempF),
+                    style = MaterialTheme.typography.displayLarge.copy(fontWeight = FontWeight.SemiBold),
+                    color = PoolOnSurface,
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    "°F",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PoolOnSurfaceMuted,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                w.humidity?.let {
+                    SubMetric("Humidity", "${String.format(Locale.US, "%.0f", it)}%")
+                }
+                w.windAvgMph?.let {
+                    SubMetric("Wind", "${String.format(Locale.US, "%.1f", it)} mph")
+                }
+                w.solarRadiation?.let {
+                    SubMetric("Solar", "${it.toInt()} W/m²")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatusPill(text: String, color: Color) {
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .background(color.copy(alpha = 0.18f))
+            .padding(horizontal = 10.dp, vertical = 4.dp),
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelLarge,
+            color = color,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
+@Composable
+private fun SubMetric(label: String, value: String) {
+    Column {
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyMedium,
+            color = PoolOnSurfaceMuted,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = PoolOnSurface,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+private fun formatTempF(f: Double?): String =
+    if (f == null) "—" else String.format(Locale.US, "%.1f", f)
+
+private fun agoString(deltaMs: Long): String {
+    val s = (deltaMs / 1000).coerceAtLeast(0)
+    return when {
+        s < 60 -> "${s}s ago"
+        s < 3600 -> "${s / 60}m ago"
+        s < 86400 -> "${s / 3600}h ago"
+        else -> "${s / 86400}d ago"
+    }
+}
+
+private val sinceFmt: DateTimeFormatter =
+    DateTimeFormatter.ofPattern("MMM d, h:mm a", Locale.US)
+
+private fun sinceString(unixSec: Long): String =
+    Instant.ofEpochSecond(unixSec).atZone(ZoneId.systemDefault()).format(sinceFmt)

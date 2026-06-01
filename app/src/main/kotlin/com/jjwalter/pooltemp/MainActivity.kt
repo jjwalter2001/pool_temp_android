@@ -48,6 +48,7 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("dashboard") {
                             DashboardScreen(
+                                settings = app.settings,
                                 onOpenSettings = { nav.navigate("settings") },
                             )
                         }
