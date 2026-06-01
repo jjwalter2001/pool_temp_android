@@ -5,12 +5,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jjwalter.pooltemp.data.ApiClient
 import com.jjwalter.pooltemp.data.ApiService
+import com.jjwalter.pooltemp.data.HistoryPoint
 import com.jjwalter.pooltemp.data.Reading
 import com.jjwalter.pooltemp.data.Settings
 import com.jjwalter.pooltemp.data.SwitchControlRequest
 import com.jjwalter.pooltemp.data.SwitchState
 import com.jjwalter.pooltemp.data.Weather
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -35,6 +37,10 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
         val switch: SwitchState? = null,
         val lastFetchedMs: Long? = null,
         val heaterPending: Boolean = false,
+        /** 24h temperature history per device, populated by the second
+         *  fetch pass after the readings list is known. Empty list means
+         *  "loaded but no data"; missing key means "not yet loaded". */
+        val histories: Map<String, List<HistoryPoint>> = emptyMap(),
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -58,20 +64,24 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
         }
     }
 
-    /** Fetches readings, weather, and switch in parallel. Safe to call
-     *  repeatedly; concurrent calls just overwrite each other's results. */
+    /** Two-pass refresh: A) readings + weather + switch in parallel so the
+     *  cards render quickly; B) 24h history per device in the background so
+     *  sparklines fill in once available. A failure in A surfaces; B
+     *  failures are silent (histories are non-essential). */
     fun refresh() {
         val a = api ?: return
         viewModelScope.launch {
             _state.update { it.copy(refreshing = true, error = null) }
-            try {
+            val phaseA = runCatching {
                 coroutineScope {
                     val r = async { a.readings() }
                     val w = async { runCatching { a.weather() }.getOrNull() }
                     val s = async { runCatching { a.switch() }.getOrNull() }
-                    val readings = r.await()
-                    val weather = w.await()
-                    val switch = s.await()
+                    Triple(r.await(), w.await(), s.await())
+                }
+            }
+            phaseA.fold(
+                onSuccess = { (readings, weather, switch) ->
                     _state.update {
                         it.copy(
                             initialLoading = false,
@@ -83,17 +93,36 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
                             error = null,
                         )
                     }
-                }
-            } catch (e: Exception) {
-                _state.update {
-                    it.copy(
-                        initialLoading = false,
-                        refreshing = false,
-                        error = e.message ?: e::class.simpleName ?: "Network error",
-                    )
-                }
+                    fetchHistories(a, readings.map { it.deviceId })
+                },
+                onFailure = { e ->
+                    _state.update {
+                        it.copy(
+                            initialLoading = false,
+                            refreshing = false,
+                            error = e.message ?: e::class.simpleName ?: "Network error",
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    private suspend fun fetchHistories(a: ApiService, devices: List<String>) {
+        if (devices.isEmpty()) return
+        runCatching {
+            coroutineScope {
+                val results = devices.map { id ->
+                    async {
+                        id to runCatching { a.history(id, hours = 24) }
+                            .getOrElse { emptyList() }
+                    }
+                }.awaitAll().toMap()
+                _state.update { it.copy(histories = results) }
             }
         }
+        // Swallow Phase B errors: a missing sparkline is not a screen-level
+        // failure, and the snackbar would be noisy.
     }
 
     fun setHeater(on: Boolean) {
