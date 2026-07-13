@@ -1,0 +1,32 @@
+<!-- ponytail: single full-bleed vector launcher icon. minSdk 26 renders vectors
+     directly, so no PNG density buckets or adaptive-icon wrapper are needed.
+     Swap for a designed adaptive icon if the app ever hits Play. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Rounded cyan background -->
+    <path
+        android:fillColor="#06B6D4"
+        android:pathData="M24,4 L84,4 Q104,4 104,24 L104,84 Q104,104 84,104 L24,104 Q4,104 4,84 L4,24 Q4,4 24,4 Z" />
+
+    <!-- Thermometer tube -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M48,26 A6,6 0 0 1 60,26 L60,74 A6,6 0 0 1 48,74 Z" />
+
+    <!-- Thermometer bulb -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,66 m-15,0 a15,15 0 1,0 30,0 a15,15 0 1,0 -30,0" />
+
+    <!-- Mercury -->
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M54,66 m-9,0 a9,9 0 1,0 18,0 a9,9 0 1,0 -18,0" />
+    <path
+        android:fillColor="#EF4444"
+        android:pathData="M51,44 L57,44 L57,66 A3,3 0 0 1 51,66 Z" />
+</vector>
