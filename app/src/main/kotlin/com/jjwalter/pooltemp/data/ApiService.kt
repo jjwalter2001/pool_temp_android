@@ -7,7 +7,7 @@ import retrofit2.http.POST
 import retrofit2.http.Query
 
 /**
- * Retrofit interface matching the Flask /api/* surface in pool_temp.
+ * Retrofit interface matching the Flask /api/... surface in pool_temp.
  *
  * Auth (CF Access service token + optional bearer) is injected globally by
  * the OkHttp interceptor in [ApiClient], so endpoint signatures stay clean.

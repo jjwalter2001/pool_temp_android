@@ -4,7 +4,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 /**
- * Data classes mirroring the shapes the Flask /api/* endpoints return.
+ * Data classes mirroring the shapes the Flask /api/... endpoints return.
  *
  * Field names match the server's JSON, except where annotated with
  * [SerialName]. New backend fields can land here as optional with defaults
