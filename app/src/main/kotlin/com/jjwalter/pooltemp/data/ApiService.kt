@@ -40,6 +40,15 @@ interface ApiService {
         @Header("X-User") user: String,
     ): SwitchControlResponse
 
+    @GET("api/lightning")
+    suspend fun lightning(): LightningState
+
+    @POST("api/lightning/control")
+    suspend fun setLightning(
+        @Body req: LightningControlRequest,
+        @Header("X-User") user: String,
+    ): LightningControlResponse
+
     @GET("api/version")
     suspend fun version(): VersionStatus
 }

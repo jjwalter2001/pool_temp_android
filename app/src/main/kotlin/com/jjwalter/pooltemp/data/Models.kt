@@ -78,6 +78,21 @@ data class SwitchControlResponse(
     val error: String? = null,
 )
 
+/** Armed state of the pool lightning-alert system (an HA input_boolean the
+ *  backend proxies). `armed` is null only if the field is absent. */
+@Serializable
+data class LightningState(val armed: Boolean? = null)
+
+@Serializable
+data class LightningControlRequest(val armed: Boolean)
+
+@Serializable
+data class LightningControlResponse(
+    val ok: Boolean? = null,
+    val armed: Boolean? = null,
+    val error: String? = null,
+)
+
 @Serializable
 data class VersionStatus(
     val current: String? = null,

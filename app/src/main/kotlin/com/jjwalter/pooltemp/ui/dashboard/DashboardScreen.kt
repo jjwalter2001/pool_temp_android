@@ -21,6 +21,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Thermostat
+import androidx.compose.material.icons.outlined.Thunderstorm
 import androidx.compose.material.icons.outlined.WbSunny
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jjwalter.pooltemp.data.HistoryPoint
+import com.jjwalter.pooltemp.data.LightningState
 import com.jjwalter.pooltemp.data.Reading
 import com.jjwalter.pooltemp.data.Settings
 import com.jjwalter.pooltemp.data.SwitchState
@@ -107,6 +109,7 @@ fun DashboardScreen(
     }
 
     var pendingToggle by remember { mutableStateOf<Boolean?>(null) }
+    var pendingArm by remember { mutableStateOf<Boolean?>(null) }
 
     Scaffold(
         topBar = {
@@ -157,6 +160,17 @@ fun DashboardScreen(
                                 }
                             }
                         }
+                        state.lightning?.let { lt ->
+                            if (lt.armed != null) {
+                                item {
+                                    LightningCard(
+                                        lightning = lt,
+                                        pending = state.lightningPending,
+                                        onToggle = { pendingArm = it },
+                                    )
+                                }
+                            }
+                        }
                         if (state.readings.isNotEmpty()) {
                             items(state.readings, key = { it.deviceId }) { r ->
                                 ReadingCard(r, history = state.histories[r.deviceId])
@@ -195,6 +209,36 @@ fun DashboardScreen(
             },
             dismissButton = {
                 TextButton(onClick = { pendingToggle = null }) { Text("Cancel") }
+            },
+        )
+    }
+
+    pendingArm?.let { wantArmed ->
+        AlertDialog(
+            onDismissRequest = { pendingArm = null },
+            title = {
+                Text(if (wantArmed) "Arm lightning alert?" else "Disarm lightning alert?")
+            },
+            text = {
+                Text(
+                    if (wantArmed)
+                        "Arms the pool lightning-alert system in Home Assistant. " +
+                            "It will announce a warning over the pool speakers when lightning is detected nearby."
+                    else
+                        "Disarms the pool lightning-alert system in Home Assistant. " +
+                            "No lightning warnings will play over the pool speakers until it's armed again."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    pendingArm = null
+                    vm.setLightning(wantArmed)
+                }) {
+                    Text(if (wantArmed) "Arm" else "Disarm")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingArm = null }) { Text("Cancel") }
             },
         )
     }
@@ -284,6 +328,71 @@ private fun HeaterCard(
                     modifier = Modifier.fillMaxWidth(),
                 ) {
                     Text(if (pending) "Sending…" else "Turn ON")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LightningCard(
+    lightning: LightningState,
+    pending: Boolean,
+    onToggle: (Boolean) -> Unit,
+) {
+    val armed = lightning.armed == true
+    val accent = if (armed) PoolAccent else HeaterOff
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Thunderstorm,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Lightning Alert",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PoolOnSurface,
+                )
+                Spacer(Modifier.width(12.dp))
+                StatusPill(text = if (armed) "ARMED" else "OFF", color = accent)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                if (armed)
+                    "Watching for nearby lightning; will warn over the pool speakers."
+                else
+                    "Disarmed — no lightning warnings will play.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = PoolOnSurfaceMuted,
+            )
+            Spacer(Modifier.height(16.dp))
+            if (armed) {
+                OutlinedButton(
+                    onClick = { onToggle(false) },
+                    enabled = !pending,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (pending) "Sending…" else "Disarm")
+                }
+            } else {
+                Button(
+                    onClick = { onToggle(true) },
+                    enabled = !pending,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = PoolAccent,
+                        contentColor = Color.Black,
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(if (pending) "Sending…" else "Arm")
                 }
             }
         }

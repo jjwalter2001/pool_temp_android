@@ -6,6 +6,8 @@ import androidx.lifecycle.viewModelScope
 import com.jjwalter.pooltemp.data.ApiClient
 import com.jjwalter.pooltemp.data.ApiService
 import com.jjwalter.pooltemp.data.HistoryPoint
+import com.jjwalter.pooltemp.data.LightningControlRequest
+import com.jjwalter.pooltemp.data.LightningState
 import com.jjwalter.pooltemp.data.Reading
 import com.jjwalter.pooltemp.data.Settings
 import com.jjwalter.pooltemp.data.SwitchControlRequest
@@ -35,12 +37,23 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
         val readings: List<Reading> = emptyList(),
         val weather: Weather? = null,
         val switch: SwitchState? = null,
+        val lightning: LightningState? = null,
         val lastFetchedMs: Long? = null,
         val heaterPending: Boolean = false,
+        val lightningPending: Boolean = false,
         /** 24h temperature history per device, populated by the second
          *  fetch pass after the readings list is known. Empty list means
          *  "loaded but no data"; missing key means "not yet loaded". */
         val histories: Map<String, List<HistoryPoint>> = emptyMap(),
+    )
+
+    /** Result of the parallel phase-A fetch. A named type (vs Triple) keeps
+     *  the destructuring readable as fields are added. */
+    private data class PhaseA(
+        val readings: List<Reading>,
+        val weather: Weather?,
+        val switch: SwitchState?,
+        val lightning: LightningState?,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -77,11 +90,14 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
                     val r = async { a.readings() }
                     val w = async { runCatching { a.weather() }.getOrNull() }
                     val s = async { runCatching { a.switch() }.getOrNull() }
-                    Triple(r.await(), w.await(), s.await())
+                    // Lightning-alert state is optional (503 if HA isn't wired
+                    // up on the backend); a null just hides the card.
+                    val l = async { runCatching { a.lightning() }.getOrNull() }
+                    PhaseA(r.await(), w.await(), s.await(), l.await())
                 }
             }
             phaseA.fold(
-                onSuccess = { (readings, weather, switch) ->
+                onSuccess = { (readings, weather, switch, lightning) ->
                     _state.update {
                         it.copy(
                             initialLoading = false,
@@ -89,6 +105,7 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
                             readings = readings,
                             weather = weather,
                             switch = switch,
+                            lightning = lightning,
                             lastFetchedMs = System.currentTimeMillis(),
                             error = null,
                         )
@@ -158,6 +175,41 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
                     it.copy(
                         heaterPending = false,
                         error = e.message ?: "Heater request failed",
+                    )
+                }
+            }
+        }
+    }
+
+    fun setLightning(armed: Boolean) {
+        val a = api ?: return
+        viewModelScope.launch {
+            _state.update { it.copy(lightningPending = true, error = null) }
+            try {
+                val res = a.setLightning(LightningControlRequest(armed = armed), user = userName)
+                if (res.ok == true) {
+                    // Optimistic update; the follow-up refresh reconciles with
+                    // HA's authoritative state.
+                    _state.update {
+                        it.copy(
+                            lightningPending = false,
+                            lightning = LightningState(armed = res.armed ?: armed),
+                        )
+                    }
+                    refresh()
+                } else {
+                    _state.update {
+                        it.copy(
+                            lightningPending = false,
+                            error = res.error ?: "Lightning alert control failed",
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                _state.update {
+                    it.copy(
+                        lightningPending = false,
+                        error = e.message ?: "Lightning alert request failed",
                     )
                 }
             }
