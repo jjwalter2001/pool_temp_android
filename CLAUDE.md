@@ -33,6 +33,37 @@ backend (sibling project). specifics below.
   gitignored; `*.example` templates are committed. Release signing + Firebase
   App Distribution are wired in `app/build.gradle.kts`.
 
+## Shipping a release (Firebase App Distribution)
+
+Firebase project: **`pool-temp-a1973`** (owner: `jjwalter2001@gmail.com`; note
+`appId` project number `202773767254`). The app applies the `appdistribution`
+plugin but **not** `google-services` — so `google-services.json` is unused by
+the build; keep it out of commits (it's not gitignored, so don't `git add` it).
+
+- **Don't try to create/download a service-account JSON key** — the project's
+  `iam.disableServiceAccountKeyCreation` org policy is **enforced**, so key
+  creation 403s. (Don't disable the policy to work around it.)
+- **Autonomous upload uses the gcloud owner token + the App Distribution REST
+  API** — no stored secret, no interactive login, respects the policy:
+  1. `$env:JAVA_HOME=…\Android Studio\jbr; .\gradlew.bat :app:assembleRelease`
+     → signed `app/build/outputs/apk/release/app-release.apk`.
+  2. `$tok = gcloud auth print-access-token` (owner, `cloud-platform` scope).
+  3. **Every** call needs header `X-Goog-User-Project: pool-temp-a1973` — user
+     creds require a quota project or the operations endpoint 403s (the
+     `releases:upload` POST doesn't enforce it, but polling the returned
+     operation does — this bit me).
+  4. Flow: POST `…/upload/v1/projects/202773767254/apps/<appId>/releases:upload`
+     (raw APK body, `X-Goog-Upload-Protocol: raw`) → poll `v1/{operation.name}`
+     until `done` → PATCH `v1/{release}?updateMask=release_notes.text` → POST
+     `v1/{release}:distribute` with `groupAliases`/`testerEmails` from
+     `firebase.properties`. App Distribution **dedupes by APK hash**
+     (`RELEASE_UNMODIFIED` on a re-upload of the same binary), so re-running is
+     safe.
+- `firebase.properties` has `appId`/`testers` set, `groups` blank — so releases
+  go to the individual `testers` list. Add a `groups` alias once that grows.
+  `FIREBASE_TOKEN` / `serviceCredentialsFile` (README's older paths) are **not**
+  used; the gcloud-token REST method above supersedes them.
+
 ## Versioning
 
 Source of truth is `app/build.gradle.kts` (`versionName` + `versionCode`). Bump
