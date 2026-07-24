@@ -30,10 +30,11 @@ class RefreshWorker(
 
         val api = ApiClient.forConfig(cfg)
         return try {
-            val (readings, switch) = coroutineScope {
+            val (readings, switch, lightning) = coroutineScope {
                 val r = async { api.readings() }
                 val s = async { runCatching { api.switch() }.getOrNull() }
-                r.await() to s.await()
+                val l = async { runCatching { api.lightning() }.getOrNull() }
+                Triple(r.await(), s.await(), l.await())
             }
             val primary = pickPrimary(readings)
             val title = primary?.temperatureF
@@ -44,8 +45,13 @@ class RefreshWorker(
                 0 -> "Heater: OFF"
                 else -> null
             }
+            val lightningStatus = when (lightning?.armed) {
+                true -> "Alert: ON"
+                false -> "Alert: OFF"
+                else -> null
+            }
             val ago = primary?.lastUpdateAgo?.let { agoString(it * 1000L) }
-            val text = listOfNotNull(heater, ago?.let { "Updated $it" })
+            val text = listOfNotNull(heater, lightningStatus, ago?.let { "Updated $it" })
                 .joinToString(" · ")
                 .ifBlank { "Tap to open the dashboard" }
             NotificationPublisher.post(applicationContext, title, text)
