@@ -56,10 +56,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jjwalter.pooltemp.notification.NotificationPublisher
 import com.jjwalter.pooltemp.data.HistoryPoint
 import com.jjwalter.pooltemp.data.LightningState
 import com.jjwalter.pooltemp.data.Reading
@@ -90,6 +92,20 @@ fun DashboardScreen(
     val vm: DashboardViewModel = viewModel(factory = DashboardViewModelFactory(settings))
     val state by vm.state.collectAsState()
     val snackbar = remember { SnackbarHostState() }
+    val context = LocalContext.current
+
+    // Keep the ongoing notification in sync with what's on screen. The periodic
+    // RefreshWorker only fires every 30 min, so without this an arm/disarm (or
+    // heater toggle) would leave the shade showing a stale value until the next
+    // background run. Fires once per successful fetch (lastFetchedMs bumps),
+    // which includes the refresh() that follows every control action.
+    LaunchedEffect(state.lastFetchedMs) {
+        if (state.lastFetchedMs != null && settings.current().notificationsEnabled) {
+            NotificationPublisher.postStatus(
+                context, state.readings, state.switch, state.lightning,
+            )
+        }
+    }
 
     // Auto-refresh every minute while the screen is in composition. Pauses
     // automatically when the user navigates to Settings.
