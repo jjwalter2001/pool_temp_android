@@ -61,6 +61,16 @@ the build; keep it out of commits (it's not gitignored, so don't `git add` it).
      safe.
 - `firebase.properties` has `appId`/`testers` set, `groups` blank — so releases
   go to the individual `testers` list. Add a `groups` alias once that grows.
+- **The project's tester roster and `firebase.properties` drift apart.**
+  `GET v1/projects/202773767254/testers` returns everyone ever added (console or
+  API); `:distribute` only reaches the emails in `firebase.properties`. As of
+  2026-08-17 the roster has `bryan.walter1012@gmail.com` but the file does not —
+  so they silently get no new builds. Adding a tester = edit the file *and* ship
+  a release; the file edit alone sends nothing.
+- Rebuilding an unchanged tree still yields a **new** APK hash (signing isn't
+  reproducible here), so a re-ship gets `RELEASE_CREATED`, not
+  `RELEASE_UNMODIFIED` — fine, but it means you don't need a `versionCode` bump
+  just to re-distribute to a newly added tester.
   `FIREBASE_TOKEN` / `serviceCredentialsFile` (README's older paths) are **not**
   used; the gcloud-token REST method above supersedes them.
 
