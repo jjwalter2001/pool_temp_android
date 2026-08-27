@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jjwalter.pooltemp.notification.Scheduler
+import com.jjwalter.pooltemp.ui.chemistry.ChemistryHistoryScreen
 import com.jjwalter.pooltemp.ui.chemistry.ChemistryScreen
 import com.jjwalter.pooltemp.ui.dashboard.DashboardScreen
 import com.jjwalter.pooltemp.ui.onboarding.OnboardingScreen
@@ -94,6 +95,13 @@ class MainActivity : ComponentActivity() {
                         }
                         composable("chemistry") {
                             ChemistryScreen(
+                                settings = app.settings,
+                                onBack = { nav.popBackStack() },
+                                onOpenHistory = { nav.navigate("chemistry/history") },
+                            )
+                        }
+                        composable("chemistry/history") {
+                            ChemistryHistoryScreen(
                                 settings = app.settings,
                                 onBack = { nav.popBackStack() },
                             )

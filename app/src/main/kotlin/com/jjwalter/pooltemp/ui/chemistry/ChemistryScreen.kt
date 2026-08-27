@@ -19,6 +19,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
+import androidx.compose.material.icons.outlined.History
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -87,6 +88,7 @@ private fun statusColor(status: String?): Color = when (status) {
 fun ChemistryScreen(
     settings: Settings,
     onBack: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     val vm: ChemistryViewModel = viewModel(factory = ChemistryViewModelFactory(settings))
     val state by vm.state.collectAsState()
@@ -107,6 +109,11 @@ fun ChemistryScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenHistory) {
+                        Icon(Icons.Outlined.History, contentDescription = "Test history")
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(

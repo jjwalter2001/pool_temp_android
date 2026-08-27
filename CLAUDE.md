@@ -97,6 +97,17 @@ interceptor covers it.
 - Recording a dose gets a confirm dialog because it writes to the calibration
   training set, not because it is dangerous. Only confirm what actually went
   in the water.
+- **The history screen is read only on purpose.** Correcting a row means
+  seeing its neighbours and retyping carefully, which is a desk job; the web
+  page owns editing and deleting. It also means no destructive gesture can
+  fire from a wet hand at the pool.
+- History chips are **neutral except where the reading was censored**. They are
+  deliberately not colored in-range or out-of-range: the targets have changed
+  over three years of history, so scoring a 2024 reading against today's bands
+  would be a fabrication.
+- pH always renders to one decimal in history (`String.format("%.1f")`), not
+  via the trailing-zero-stripping helper. "pH 8" and "pH 8.0" read as
+  different kinds of measurement.
 
 ## Versioning
 

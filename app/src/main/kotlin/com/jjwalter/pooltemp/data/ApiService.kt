@@ -66,6 +66,11 @@ interface ApiService {
     @POST("api/chem/doses")
     suspend fun postChemDose(@Body req: ChemDoseRequest): ChemDoseResponse
 
+    /** Newest last is how the server returns it; the screen reverses for
+     *  display. Default window covers the full backfilled history. */
+    @GET("api/chem/history")
+    suspend fun chemHistory(@Query("days") days: Int = 3650): List<ChemReading>
+
     @GET("api/chem/config")
     suspend fun chemConfig(): ChemConfig
 }
