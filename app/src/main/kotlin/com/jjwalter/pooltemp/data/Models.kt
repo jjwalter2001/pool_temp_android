@@ -99,3 +99,124 @@ data class VersionStatus(
     val latest: String? = null,
     @SerialName("update_available") val updateAvailable: Boolean? = null,
 )
+
+// ── Water chemistry ──────────────────────────────────────────────────────────
+// Mirrors /api/chem/*. Censored readings are a flag plus a null value, never a
+// sentinel number: the Taylor K-1005 cannot read chlorine above 5 ppm, pH below
+// 7, or cyanuric acid below 30, so those readings have no value to store.
+
+@Serializable
+data class ChemReading(
+    val id: Int? = null,
+    val ts: Long? = null,
+    val ph: Double? = null,
+    @SerialName("ph_below7") val phBelow7: Int = 0,
+    val fc: Int? = null,
+    @SerialName("fc_over") val fcOver: Int = 0,
+    val tc: Int? = null,
+    @SerialName("tc_over") val tcOver: Int = 0,
+    val ta: Int? = null,
+    val cya: Int? = null,
+    @SerialName("cya_below30") val cyaBelow30: Int = 0,
+    val salt: Int? = null,
+    val ch: Int? = null,
+    @SerialName("swg_pct") val swgPct: Int? = null,
+    @SerialName("water_temp_f") val waterTempF: Double? = null,
+    val note: String? = null,
+)
+
+/** One recommended step. Either a product dose (product + amount + unit) or a
+ *  salt cell change (swgPct), never both. */
+@Serializable
+data class ChemAction(
+    val order: Int = 0,
+    val product: String? = null,
+    val amount: Double? = null,
+    val unit: String? = null,
+    val reason: String = "",
+    val note: String? = null,
+    @SerialName("wait_minutes") val waitMinutes: Int = 0,
+    val sequence: String? = null,
+    @SerialName("swg_pct") val swgPct: Int? = null,
+)
+
+/** A dose the engine deliberately withheld, with the reason. The cyanuric acid
+ *  re-dose block is the common one. */
+@Serializable
+data class ChemBlocked(
+    val product: String? = null,
+    val reason: String = "",
+)
+
+@Serializable
+data class ChemLsi(
+    val value: Double? = null,
+    val band: String? = null,
+    val note: String? = null,
+)
+
+@Serializable
+data class ChemLatest(
+    val reading: ChemReading? = null,
+    @SerialName("reading_id") val readingId: Int? = null,
+    @SerialName("days_since") val daysSince: Int? = null,
+    val status: Map<String, String> = emptyMap(),
+    val actions: List<ChemAction> = emptyList(),
+    val blocked: List<ChemBlocked> = emptyList(),
+    val warnings: List<String> = emptyList(),
+    val lsi: ChemLsi? = null,
+    /** Present only on a validation failure. */
+    val errors: List<String>? = null,
+)
+
+/** Fields left null are omitted by the Json config (explicitNulls = false), and
+ *  the server reads an absent field as "not tested". */
+@Serializable
+data class ChemReadingRequest(
+    val ph: Double? = null,
+    @SerialName("ph_below7") val phBelow7: Int? = null,
+    val fc: Int? = null,
+    @SerialName("fc_over") val fcOver: Int? = null,
+    val tc: Int? = null,
+    @SerialName("tc_over") val tcOver: Int? = null,
+    val ta: Int? = null,
+    val cya: Int? = null,
+    @SerialName("cya_below30") val cyaBelow30: Int? = null,
+    val salt: Int? = null,
+    val ch: Int? = null,
+    @SerialName("swg_pct") val swgPct: Int? = null,
+    val note: String? = null,
+    val source: String = "app",
+)
+
+@Serializable
+data class ChemDoseRequest(
+    val product: String,
+    val amount: Double,
+    val unit: String,
+    @SerialName("reading_id") val readingId: Int? = null,
+    @SerialName("recommended_amount") val recommendedAmount: Double? = null,
+    val source: String = "app",
+)
+
+@Serializable
+data class ChemDoseResponse(
+    @SerialName("dose_id") val doseId: Int? = null,
+    val errors: List<String>? = null,
+)
+
+@Serializable
+data class ChemProduct(
+    val key: String,
+    val label: String,
+    val kind: String? = null,
+    val unit: String? = null,
+    @SerialName("cal_multiplier") val calMultiplier: Double = 1.0,
+    @SerialName("cal_n") val calN: Int = 0,
+)
+
+@Serializable
+data class ChemConfig(
+    val config: Map<String, String> = emptyMap(),
+    val products: List<ChemProduct> = emptyList(),
+)

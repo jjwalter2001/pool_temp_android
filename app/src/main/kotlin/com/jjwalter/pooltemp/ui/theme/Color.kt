@@ -15,3 +15,12 @@ val PoolAccentDim = Color(0xFF155E75)
 val HeaterOn = Color(0xFFF59E0B)          // amber -- matches web UI
 val HeaterOff = Color(0xFF475569)
 val Danger = Color(0xFFEF4444)
+
+// Water-chemistry status vocabulary. Kept identical to the web chemistry page
+// so a reading reads the same on both surfaces: green in range, amber low,
+// red high, slate not tested.
+val ChemOk = Color(0xFF22C55E)
+val ChemLow = Color(0xFFF59E0B)
+val ChemHigh = Color(0xFFEF4444)
+val ChemUnknown = Color(0xFF475569)
+val ChemAccent = Color(0xFFA78BFA)   // violet, matching the web page's domain hue

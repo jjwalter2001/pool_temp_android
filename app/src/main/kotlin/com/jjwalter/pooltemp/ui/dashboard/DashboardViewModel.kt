@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.jjwalter.pooltemp.data.ApiClient
 import com.jjwalter.pooltemp.data.ApiService
+import com.jjwalter.pooltemp.data.ChemLatest
 import com.jjwalter.pooltemp.data.HistoryPoint
 import com.jjwalter.pooltemp.data.LightningControlRequest
 import com.jjwalter.pooltemp.data.LightningState
@@ -38,6 +39,9 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
         val weather: Weather? = null,
         val switch: SwitchState? = null,
         val lightning: LightningState? = null,
+        /** Newest chemistry reading plus its recommendation. Null while
+         *  loading or if the backend predates the chemistry endpoints. */
+        val chem: ChemLatest? = null,
         val lastFetchedMs: Long? = null,
         val heaterPending: Boolean = false,
         val lightningPending: Boolean = false,
@@ -54,6 +58,7 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
         val weather: Weather?,
         val switch: SwitchState?,
         val lightning: LightningState?,
+        val chem: ChemLatest?,
     )
 
     private val _state = MutableStateFlow(UiState())
@@ -93,11 +98,14 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
                     // Lightning-alert state is optional (503 if HA isn't wired
                     // up on the backend); a null just hides the card.
                     val l = async { runCatching { a.lightning() }.getOrNull() }
-                    PhaseA(r.await(), w.await(), s.await(), l.await())
+                    // Chemistry is optional the same way: an older backend
+                    // 404s here and the card simply does not render.
+                    val c = async { runCatching { a.chemLatest() }.getOrNull() }
+                    PhaseA(r.await(), w.await(), s.await(), l.await(), c.await())
                 }
             }
             phaseA.fold(
-                onSuccess = { (readings, weather, switch, lightning) ->
+                onSuccess = { (readings, weather, switch, lightning, chem) ->
                     _state.update {
                         it.copy(
                             initialLoading = false,
@@ -106,6 +114,7 @@ class DashboardViewModel(private val settings: Settings) : ViewModel() {
                             weather = weather,
                             switch = switch,
                             lightning = lightning,
+                            chem = chem,
                             lastFetchedMs = System.currentTimeMillis(),
                             error = null,
                         )

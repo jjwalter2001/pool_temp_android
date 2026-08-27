@@ -51,4 +51,21 @@ interface ApiService {
 
     @GET("api/version")
     suspend fun version(): VersionStatus
+
+    // ── Water chemistry ──────────────────────────────────────────────────
+    // Covered by the same auth interceptor; the prefix is still /api/.
+
+    @GET("api/chem/latest")
+    suspend fun chemLatest(): ChemLatest
+
+    /** Returns the recommendation for the reading just saved, so the entry
+     *  screen needs no second round trip at poolside. */
+    @POST("api/chem/readings")
+    suspend fun postChemReading(@Body req: ChemReadingRequest): ChemLatest
+
+    @POST("api/chem/doses")
+    suspend fun postChemDose(@Body req: ChemDoseRequest): ChemDoseResponse
+
+    @GET("api/chem/config")
+    suspend fun chemConfig(): ChemConfig
 }

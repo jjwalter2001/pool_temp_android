@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Bolt
+import androidx.compose.material.icons.outlined.Science
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Thermostat
 import androidx.compose.material.icons.outlined.Thunderstorm
@@ -62,6 +63,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jjwalter.pooltemp.notification.NotificationPublisher
+import com.jjwalter.pooltemp.data.ChemLatest
 import com.jjwalter.pooltemp.data.HistoryPoint
 import com.jjwalter.pooltemp.data.LightningState
 import com.jjwalter.pooltemp.data.Reading
@@ -74,6 +76,8 @@ import com.jjwalter.pooltemp.ui.theme.HeaterOn
 import com.jjwalter.pooltemp.ui.theme.PoolAccent
 import com.jjwalter.pooltemp.ui.theme.PoolAccentDim
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
+import com.jjwalter.pooltemp.ui.theme.ChemAccent
+import com.jjwalter.pooltemp.ui.theme.ChemLow
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
 import kotlinx.coroutines.delay
 import java.time.Instant
@@ -88,6 +92,7 @@ private const val AUTO_REFRESH_MS = 60_000L
 fun DashboardScreen(
     settings: Settings,
     onOpenSettings: () -> Unit,
+    onOpenChemistry: () -> Unit,
 ) {
     val vm: DashboardViewModel = viewModel(factory = DashboardViewModelFactory(settings))
     val state by vm.state.collectAsState()
@@ -186,6 +191,9 @@ fun DashboardScreen(
                                     )
                                 }
                             }
+                        }
+                        state.chem?.let { c ->
+                            item { ChemistryCard(chem = c, onOpen = onOpenChemistry) }
                         }
                         if (state.readings.isNotEmpty()) {
                             items(state.readings, key = { it.deviceId }) { r ->
@@ -633,3 +641,58 @@ private val sinceFmt: DateTimeFormatter =
 
 private fun sinceString(unixSec: Long): String =
     Instant.ofEpochSecond(unixSec).atZone(ZoneId.systemDefault()).format(sinceFmt)
+
+@Composable
+private fun ChemistryCard(chem: ChemLatest, onOpen: () -> Unit) {
+    val days = chem.daysSince
+    // Days since the last test is the number that actually changes behavior:
+    // the real failure mode here is a three week gap, not a bad reading.
+    val overdue = days != null && days >= 7
+    val accent = if (overdue) ChemLow else ChemAccent
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        onClick = onOpen,
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    Icons.Outlined.Science,
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    "Water Chemistry",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = PoolOnSurface,
+                )
+                Spacer(Modifier.width(12.dp))
+                if (overdue) StatusPill(text = "DUE", color = ChemLow)
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when {
+                    chem.reading == null -> "No tests logged yet. Tap to add one."
+                    days == null -> "Last test recorded."
+                    days == 0 -> "Tested today."
+                    days == 1 -> "Tested yesterday."
+                    else -> "Tested $days days ago."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = PoolOnSurfaceMuted,
+            )
+            if (chem.actions.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                val n = chem.actions.size
+                Text(
+                    if (n == 1) "1 thing to add" else "$n things to add",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = accent,
+                )
+            }
+        }
+    }
+}

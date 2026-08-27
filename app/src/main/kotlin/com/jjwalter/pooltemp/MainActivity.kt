@@ -20,6 +20,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.jjwalter.pooltemp.notification.Scheduler
+import com.jjwalter.pooltemp.ui.chemistry.ChemistryScreen
 import com.jjwalter.pooltemp.ui.dashboard.DashboardScreen
 import com.jjwalter.pooltemp.ui.onboarding.OnboardingScreen
 import com.jjwalter.pooltemp.ui.settings.SettingsScreen
@@ -88,6 +89,13 @@ class MainActivity : ComponentActivity() {
                             DashboardScreen(
                                 settings = app.settings,
                                 onOpenSettings = { nav.navigate("settings") },
+                                onOpenChemistry = { nav.navigate("chemistry") },
+                            )
+                        }
+                        composable("chemistry") {
+                            ChemistryScreen(
+                                settings = app.settings,
+                                onBack = { nav.popBackStack() },
                             )
                         }
                         composable("settings") {

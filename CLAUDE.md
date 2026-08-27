@@ -74,6 +74,30 @@ the build; keep it out of commits (it's not gitignored, so don't `git add` it).
   `FIREBASE_TOKEN` / `serviceCredentialsFile` (README's older paths) are **not**
   used; the gcloud-token REST method above supersedes them.
 
+## Water chemistry
+
+`ui/chemistry/` (ViewModel + Screen) plus the chemistry models in `data/`.
+Talks to `/api/chem/*` on the same backend; no new auth, the existing
+interceptor covers it.
+
+- The **entry form lives in the ViewModel**, not in the composable, so a
+  rotation or a brief backgrounding at poolside does not discard a
+  half-entered test.
+- **Censored readings are a checkbox with no value.** The Taylor K-1005 cannot
+  read chlorine above 5 ppm, pH below 7, or CYA below 30. Ticking a box clears
+  and disables its field; the server rejects a row carrying both, so the two
+  must stay mutually exclusive here too.
+- **pH is capped to one decimal at the keystroke** (`setPh`) and chlorine to a
+  single digit 0-5 (`clampChlorine`), mirroring the server's validation so a
+  reading it would reject cannot be typed. The server rejects rather than
+  rounds, so do not "helpfully" round here either.
+- Chemistry is fetched in the dashboard's phase-A block wrapped in
+  `runCatching`, like lightning: an older backend 404s and the card just does
+  not render.
+- Recording a dose gets a confirm dialog because it writes to the calibration
+  training set, not because it is dangerous. Only confirm what actually went
+  in the water.
+
 ## Versioning
 
 Source of truth is `app/build.gradle.kts` (`versionName` + `versionCode`). Bump
