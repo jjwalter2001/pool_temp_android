@@ -101,13 +101,26 @@ interceptor covers it.
   seeing its neighbours and retyping carefully, which is a desk job; the web
   page owns editing and deleting. It also means no destructive gesture can
   fire from a wet hand at the pool.
-- History chips are **neutral except where the reading was censored**. They are
+- History is a **grid, not cards**. Its column order deliberately matches the
+  Pool Measurements spreadsheet the data was imported from (pH, TC, FC, TA,
+  CYA, salt, CH), so scanning it feels like the sheet rather than like a
+  different tool showing the same numbers.
+- **The date column is frozen and everything else shares one `ScrollState`**
+  with the header. That shared state is what keeps the columns aligned while
+  the grid scrolls sideways; give the header and every row the same instance
+  or the alignment silently drifts.
+- Cells use `fontFeatureSettings = "tnum"` and fixed `Dp` column widths.
+  Tabular figures are why digits line up down a column; proportional numerals
+  would ruin the effect at a glance.
+- Values are **neutral except where the reading was censored**. They are
   deliberately not colored in-range or out-of-range: the targets have changed
   over three years of history, so scoring a 2024 reading against today's bands
   would be a fabrication.
 - pH always renders to one decimal in history (`String.format("%.1f")`), not
-  via the trailing-zero-stripping helper. "pH 8" and "pH 8.0" read as
-  different kinds of measurement.
+  via a trailing-zero-stripping helper. "pH 8" and "pH 8.0" read as different
+  kinds of measurement.
+- Zebra striping uses `itemsIndexed`, not `indexOf`. `indexOf` is O(n) per row
+  and returns the wrong index whenever two readings compare equal.
 
 ## Versioning
 
