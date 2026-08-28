@@ -684,9 +684,11 @@ private fun ChemistryCard(chem: ChemLatest, onOpen: () -> Unit) {
                 style = MaterialTheme.typography.bodyMedium,
                 color = PoolOnSurfaceMuted,
             )
-            if (chem.actions.isNotEmpty()) {
+            // Only what is still outstanding: an action already added or
+            // skipped is not something to do.
+            if (chem.pendingCount > 0) {
                 Spacer(Modifier.height(8.dp))
-                val n = chem.actions.size
+                val n = chem.pendingCount
                 Text(
                     if (n == 1) "1 thing to add" else "$n things to add",
                     style = MaterialTheme.typography.bodyMedium,

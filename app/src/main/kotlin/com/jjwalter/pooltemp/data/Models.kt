@@ -138,6 +138,16 @@ data class ChemAction(
     /** Stable identity, used to remember a skip across regenerations. */
     val key: String = "",
     val dismissed: Boolean = false,
+    /**
+     * This product was already added against this reading.
+     *
+     * The engine is stateless about doses: it reads the water, and the water
+     * still reads high until a retest, so it keeps recommending. Without this
+     * the recommendation stays on screen after you acted on it, inviting a
+     * second pour.
+     */
+    val done: Boolean = false,
+    @SerialName("done_ts") val doneTs: Long? = null,
     val product: String? = null,
     val amount: Double? = null,
     val unit: String? = null,

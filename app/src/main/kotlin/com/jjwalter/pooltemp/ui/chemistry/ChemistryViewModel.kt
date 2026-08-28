@@ -41,7 +41,6 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         val selections: Map<String, String> = emptyMap(),
         val salt: String = "",
         val note: String = "",
-        val doseLogged: Set<Int> = emptySet(),
         val config: Map<String, String> = emptyMap(),
         val productLabels: Map<String, String> = emptyMap(),
     ) {
@@ -130,7 +129,6 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
                         it.copy(
                             saving = false, latest = rec,
                             selections = emptyMap(), salt = "", note = "",
-                            doseLogged = emptySet(),
                         )
                     }
                 },
@@ -165,7 +163,9 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
                 )
             }.fold(
                 onSuccess = {
-                    _state.update { it.copy(doseLogged = it.doseLogged + action.order) }
+                    // The server now marks the action done, so a refresh is
+                    // the single source of truth. Local "recorded" state was
+                    // what made the recommendation reappear after a reload.
                     refresh()
                 },
                 onFailure = { e -> _state.update { it.copy(error = describe(e)) } },

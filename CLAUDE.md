@@ -132,6 +132,13 @@ interceptor covers it.
 - Recording a dose gets a confirm dialog because it writes to the calibration
   training set, not because it is dangerous. Only confirm what actually went
   in the water.
+- **"Already added" is server state, never local.** An action carries `done`
+  and `done_ts` when its product was recorded against that same reading. The
+  app previously tracked this in a `doseLogged` set that vanished on refresh,
+  so the recommendation to add acid came back after you had added it. Do not
+  reintroduce local "recorded" state.
+- The dashboard card counts `pendingCount`, not `actions.size`, or it keeps
+  saying "1 thing to add" after it has been added.
 - **Skipping a recommendation** posts the action's stable `key`, never its
   position: the engine regenerates actions on every fetch and `order` shifts.
   A skipped action stays on screen with an Undo, so the decision is

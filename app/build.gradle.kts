@@ -32,8 +32,8 @@ android {
         applicationId = "com.jjwalter.pooltemp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 17
-        versionName = "1.10.0"
+        versionCode = 18
+        versionName = "1.11.0"
     }
 
     signingConfigs {

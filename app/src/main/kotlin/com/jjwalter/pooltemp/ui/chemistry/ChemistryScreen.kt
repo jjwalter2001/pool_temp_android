@@ -75,6 +75,7 @@ import com.jjwalter.pooltemp.ui.theme.ChemOk
 import com.jjwalter.pooltemp.ui.theme.ChemUnknown
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
+import java.util.Date
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneOffset
@@ -89,6 +90,8 @@ private val PARAM_LABELS = listOf(
     "ch" to "Calcium",
     "salt" to "Salt",
 )
+
+private val DATE_ONLY = java.text.SimpleDateFormat("d MMM", Locale.getDefault())
 
 private fun statusColor(status: String?): Color = when (status) {
     "ok" -> ChemOk
@@ -161,7 +164,6 @@ fun ChemistryScreen(
                     ActionsCard(
                         latest = latest,
                         labels = state.productLabels,
-                        logged = state.doseLogged,
                         onLog = { confirmDose = it },
                         onSkip = { vm.toggleSkip(it, latest.readingId) },
                     )
@@ -413,7 +415,6 @@ private fun valueFor(latest: ChemLatest, key: String): String {
 private fun ActionsCard(
     latest: ChemLatest,
     labels: Map<String, String>,
-    logged: Set<Int>,
     onLog: (ChemAction) -> Unit,
     onSkip: (ChemAction) -> Unit,
 ) {
@@ -423,6 +424,15 @@ private fun ActionsCard(
     ) {
         Column(Modifier.padding(16.dp)) {
             Text("What to add", style = MaterialTheme.typography.titleMedium, color = PoolOnSurface)
+            if (latest.actions.isNotEmpty() && latest.pendingCount == 0) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    "All handled for this test. Retest in a day or two to see " +
+                        "where it landed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ChemOk,
+                )
+            }
             Spacer(Modifier.height(12.dp))
 
             latest.actions.forEach { a ->
@@ -440,9 +450,11 @@ private fun ActionsCard(
                         Text(
                             headline,
                             style = MaterialTheme.typography.bodyLarge,
-                            color = if (a.dismissed) PoolOnSurfaceMuted else PoolOnSurface,
+                            color = if (a.dismissed || a.done) PoolOnSurfaceMuted
+                            else PoolOnSurface,
                             fontWeight = FontWeight.SemiBold,
-                            textDecoration = if (a.dismissed) TextDecoration.LineThrough else null,
+                            textDecoration = if (a.dismissed || a.done)
+                                TextDecoration.LineThrough else null,
                         )
                         Text(
                             a.reason,
@@ -450,7 +462,16 @@ private fun ActionsCard(
                             color = PoolOnSurfaceMuted,
                             textDecoration = if (a.dismissed) TextDecoration.LineThrough else null,
                         )
-                        if (!a.dismissed) {
+                        if (a.done) {
+                            Text(
+                                "Added" + (a.doneTs?.let {
+                                    " " + DATE_ONLY.format(Date(it * 1000))
+                                } ?: ""),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = ChemOk,
+                            )
+                        }
+                        if (!a.dismissed && !a.done) {
                             if (a.waitMinutes > 0) {
                                 Text(
                                     "Wait ${a.waitMinutes / 60} h first",
@@ -472,19 +493,15 @@ private fun ActionsCard(
                         // A skipped action keeps its Undo so the decision stays
                         // reversible. Only "Added" disappears, because it is no
                         // longer the next step.
-                        if (!a.dismissed && a.product != null && a.amount != null) {
-                            if (logged.contains(a.order)) {
-                                Text(
-                                    "Recorded",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = ChemOk,
-                                )
-                            } else {
-                                OutlinedButton(onClick = { onLog(a) }) { Text("Added") }
-                            }
+                        if (!a.dismissed && !a.done &&
+                            a.product != null && a.amount != null
+                        ) {
+                            OutlinedButton(onClick = { onLog(a) }) { Text("Added") }
                         }
-                        TextButton(onClick = { onSkip(a) }) {
-                            Text(if (a.dismissed) "Undo" else "Skip")
+                        if (!a.done) {
+                            TextButton(onClick = { onSkip(a) }) {
+                                Text(if (a.dismissed) "Undo" else "Skip")
+                            }
                         }
                     }
                 }
