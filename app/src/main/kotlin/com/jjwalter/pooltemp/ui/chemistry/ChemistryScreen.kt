@@ -77,8 +77,6 @@ import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
 import java.time.Instant
 import java.time.LocalDate
-import java.time.LocalTime
-import java.time.ZoneId
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -180,8 +178,8 @@ fun ChemistryScreen(
             action = action,
             productLabel = state.productLabels[action.product] ?: action.product.orEmpty(),
             onDismiss = { confirmDose = null },
-            onConfirm = { ts ->
-                vm.logDose(action, state.latest?.readingId, ts)
+            onConfirm = { onDate ->
+                vm.logDose(action, state.latest?.readingId, onDate)
                 confirmDose = null
             },
         )
@@ -202,7 +200,7 @@ private fun RecordDoseDialog(
     action: ChemAction,
     productLabel: String,
     onDismiss: () -> Unit,
-    onConfirm: (Long?) -> Unit,
+    onConfirm: (String?) -> Unit,
 ) {
     val today = remember { LocalDate.now() }
     var chosen by remember { mutableStateOf(today) }
@@ -248,10 +246,10 @@ private fun RecordDoseDialog(
         text = {
             Column {
                 Text(
-                    "Logs ${fmtAmount(action.amount)} ${action.unit.orEmpty()} of " +
-                        "$productLabel as actually added. This is what teaches the " +
-                        "app how your products behave, so only confirm once it is " +
-                        "in the water.",
+                    "Logs ${action.display ?: "${fmtAmount(action.amount)} " +
+                        action.unit.orEmpty()} of $productLabel as actually " +
+                        "added. This is what teaches the app how your products " +
+                        "behave, so only confirm once it is in the water.",
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
@@ -286,13 +284,14 @@ private fun RecordDoseDialog(
         },
         confirmButton = {
             TextButton(onClick = {
-                val ts = if (chosen == today) {
-                    null // now, which is the accurate answer for today
-                } else {
-                    chosen.atTime(LocalTime.NOON)
-                        .atZone(ZoneId.systemDefault()).toEpochSecond()
-                }
-                onConfirm(ts)
+                // Today keeps the real clock time. An earlier date goes as a
+                // date, for the server to resolve against the pool's timezone;
+                // resolving it here used the phone's zone and filed doses hours
+                // out, sometimes before the very reading they belonged to.
+                onConfirm(
+                    if (chosen == today) null
+                    else chosen.format(DateTimeFormatter.ISO_LOCAL_DATE),
+                )
             }) { Text("Record") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -430,7 +429,10 @@ private fun ActionsCard(
                 val label = labels[a.product] ?: a.product.orEmpty()
                 val headline = when {
                     a.swgPct != null -> "Set the cell to ${a.swgPct}%"
-                    a.amount != null -> "${fmtAmount(a.amount)} ${a.unit.orEmpty()} $label"
+                    // The server renders the amount into something pourable,
+                    // e.g. "1 gallon (128 oz)".
+                    a.amount != null ->
+                        "${a.display ?: "${fmtAmount(a.amount)} ${a.unit.orEmpty()}"} $label"
                     else -> label.ifBlank { a.reason }
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {

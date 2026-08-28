@@ -113,6 +113,13 @@ interceptor covers it.
   checkbox beside a filled field could. `UNDER`/`OVER` are UI-only sentinels
   that map onto the flag columns at save time; a field is one string that is
   blank, a number, or a sentinel.
+- **A dose date is sent as `on_date` (YYYY-MM-DD), never as a computed
+  timestamp.** The server resolves it to midday in the pool's timezone.
+  Computing midday on the device used the *device's* zone, which filed a dose
+  five hours out and landed it before the very reading it was recorded
+  against. Only "today" sends a real timestamp.
+- Amounts render from the action's `display` field ("1 gallon (128 oz)"), which
+  the server produces. Do not reformat amounts here.
 - **Recording a dose asks when it actually went in.** The timestamp is what
   calibration pairs are matched on, in hours, so "now" is wrong every time the
   pour and the tap happen at different points in the day. Today keeps the real

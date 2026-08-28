@@ -141,6 +141,8 @@ data class ChemAction(
     val product: String? = null,
     val amount: Double? = null,
     val unit: String? = null,
+    /** Pourable rendering of the amount, e.g. "1 gallon (128 oz)". */
+    val display: String? = null,
     val reason: String = "",
     val note: String? = null,
     @SerialName("wait_minutes") val waitMinutes: Int = 0,
@@ -214,6 +216,13 @@ data class ChemDoseRequest(
     /** When it actually went in. Omitted means now. Calibration matches pairs
      *  in hours, so recording a morning dose at bedtime skews the multiplier. */
     val ts: Long? = null,
+    /**
+     * A calendar date, YYYY-MM-DD, resolved to midday in the pool's timezone
+     * by the server. Sent instead of [ts] for a past date: computing midday on
+     * the device used the device's zone, which filed a dose hours from where
+     * it belonged and on the wrong side of its own reading.
+     */
+    @SerialName("on_date") val onDate: String? = null,
     @SerialName("reading_id") val readingId: Int? = null,
     @SerialName("recommended_amount") val recommendedAmount: Double? = null,
     val source: String = "app",

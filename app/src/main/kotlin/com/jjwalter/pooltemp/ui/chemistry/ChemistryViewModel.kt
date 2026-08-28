@@ -144,12 +144,13 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
     /**
      * Record that a recommended dose was actually added.
      *
-     * `ts` is when it went in the water, which is not necessarily when the
-     * button was tapped. Calibration pairs are matched in hours, so a morning
-     * dose recorded at bedtime would skew the learned multiplier. Null means
-     * now.
+     * `onDate` is the day it went in the water, which is not necessarily the
+     * day the button was tapped. Calibration pairs are matched in hours, so a
+     * morning dose recorded at bedtime would skew the learned multiplier. Null
+     * means now, and the server resolves a date to midday in the pool's
+     * timezone rather than the phone's.
      */
-    fun logDose(action: ChemAction, readingId: Int?, ts: Long? = null) {
+    fun logDose(action: ChemAction, readingId: Int?, onDate: String? = null) {
         val a = api ?: return
         val product = action.product ?: return
         val amount = action.amount ?: return
@@ -158,7 +159,7 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
                 a.postChemDose(
                     ChemDoseRequest(
                         product = product, amount = amount,
-                        unit = action.unit ?: "", ts = ts,
+                        unit = action.unit ?: "", onDate = onDate,
                         readingId = readingId, recommendedAmount = amount,
                     ),
                 )
