@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
@@ -27,44 +28,22 @@ import kotlin.math.roundToInt
  */
 class ChemistryViewModel(private val settings: Settings) : ViewModel() {
 
-    /**
-     * One field of the entry form.
-     *
-     * A reading is either a value from the scale or an off-scale marker, never
-     * both: the server rejects a row carrying a flag and a value together.
-     */
-    data class Field(
-        val value: String = "",
-        val under: Boolean = false,
-        val over: Boolean = false,
-    ) {
-        val censored: Boolean get() = under || over
-        val enabled: Boolean get() = !censored
+    companion object {
+        /**
+         * Off-scale readings are entries in the dropdown, not separate
+         * checkboxes: one control per parameter, and picking "Below 6.8"
+         * cannot contradict a value the way a checkbox beside a filled field
+         * could. These sentinels exist only in the UI; they map onto the flag
+         * columns at save time.
+         */
+        const val UNDER = "__under__"
+        const val OVER = "__over__"
     }
 
-    data class Form(
-        val ph: Field = Field(),
-        val fc: Field = Field(),
-        val tc: Field = Field(),
-        val ta: Field = Field(),
-        val cya: Field = Field(),
-        val ch: Field = Field(),
-        val salt: String = "",
-        val swg: String = "",
-        val note: String = "",
-    ) {
-        val isEmpty: Boolean
-            get() = listOf(ph, fc, tc, ta, cya, ch)
-                .all { it.value.isBlank() && !it.censored } &&
-                salt.isBlank() && swg.isBlank()
-    }
+    /** One selectable entry: the stored value (or a sentinel) and its label. */
+    data class Option(val value: String, val label: String)
 
-    /** The option list and boundary labels for one field, from `pool_config`. */
-    data class Scale(
-        val options: List<String> = emptyList(),
-        val low: String = "",
-        val high: String = "",
-    )
+    data class Scale(val options: List<Option> = emptyList())
 
     data class Scales(
         val ph: Scale = Scale(),
@@ -74,6 +53,22 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         val ch: Scale = Scale(),
         val swg: Scale = Scale(),
     )
+
+    /** Each field is one string: blank, a number, or an off-scale sentinel. */
+    data class Form(
+        val ph: String = "",
+        val fc: String = "",
+        val tc: String = "",
+        val ta: String = "",
+        val cya: String = "",
+        val ch: String = "",
+        val salt: String = "",
+        val swg: String = "",
+        val note: String = "",
+    ) {
+        val isEmpty: Boolean
+            get() = listOf(ph, fc, tc, ta, cya, ch, salt, swg).all { it.isBlank() }
+    }
 
     data class UiState(
         val loading: Boolean = true,
@@ -134,8 +129,8 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
     // ── Scales ───────────────────────────────────────────────────────────
 
     /**
-     * Build the dropdown options from the server's scale bounds so the app,
-     * the web page, and the engine's off-scale handling all agree.
+     * Build the option lists from the server's scale bounds so the app, the web
+     * page, and the engine's off-scale handling all read the same numbers.
      *
      * Steps are counted by index rather than accumulated: adding 0.1 twelve
      * times lands on 7.999999999999999, and the option would no longer match
@@ -143,37 +138,61 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
      */
     private fun buildScales(cfg: Map<String, String>): Scales {
         fun n(key: String, fallback: Double) = cfg[key]?.toDoubleOrNull() ?: fallback
-        fun steps(lo: Double, hi: Double, step: Double, decimals: Int): List<String> {
+
+        fun scale(
+            lo: Double,
+            hi: Double,
+            step: Double,
+            decimals: Int = 0,
+            underLabel: String? = null,
+            overLabel: String? = null,
+            suffix: String = "",
+        ): Scale {
+            val out = mutableListOf<Option>()
+            underLabel?.let { out += Option(UNDER, it) }
             val count = ((hi - lo) / step).roundToInt()
-            return (0..count).map { i ->
+            for (i in 0..count) {
                 val v = lo + i * step
-                if (decimals == 0) v.roundToInt().toString()
-                else String.format(java.util.Locale.US, "%.${decimals}f", v)
+                val text = if (decimals == 0) v.roundToInt().toString()
+                else String.format(Locale.US, "%.${decimals}f", v)
+                out += Option(text, text + suffix)
             }
+            overLabel?.let { out += Option(OVER, it) }
+            return Scale(out)
         }
 
+        fun whole(v: Double) = v.roundToInt().toString()
         val phLo = n("ph_scale_min", 6.8)
         val phHi = n("ph_scale_max", 8.0)
         val clHi = n("cl_scale_max", 5.0)
-        val taLo = n("ta_scale_min", 0.0)
-        val taHi = n("ta_scale_max", 150.0)
         val cyaLo = n("cya_scale_min", 30.0)
         val cyaHi = n("cya_scale_max", 120.0)
         val chLo = n("ch_scale_min", 100.0)
         val chHi = n("ch_scale_max", 400.0)
+        val taHi = n("ta_scale_max", 150.0)
 
-        fun whole(v: Double) = v.roundToInt().toString()
         return Scales(
-            ph = Scale(steps(phLo, phHi, n("ph_scale_step", 0.1), 1),
-                String.format(java.util.Locale.US, "%.1f", phLo),
-                String.format(java.util.Locale.US, "%.1f", phHi)),
-            cl = Scale(steps(0.0, clHi, 1.0, 0), "", whole(clHi)),
-            ta = Scale(steps(taLo, taHi, n("ta_scale_step", 10.0), 0), "", whole(taHi)),
-            cya = Scale(steps(cyaLo, cyaHi, n("cya_scale_step", 10.0), 0),
-                whole(cyaLo), whole(cyaHi)),
-            ch = Scale(steps(chLo, chHi, n("ch_scale_step", 10.0), 0),
-                whole(chLo), whole(chHi)),
-            swg = Scale(steps(0.0, 100.0, n("swg_scale_step", 5.0), 0), "", "100"),
+            ph = scale(
+                phLo, phHi, n("ph_scale_step", 0.1), decimals = 1,
+                underLabel = "Below " + String.format(Locale.US, "%.1f", phLo),
+                overLabel = "Above " + String.format(Locale.US, "%.1f", phHi),
+            ),
+            cl = scale(0.0, clHi, 1.0, overLabel = "Over " + whole(clHi)),
+            ta = scale(
+                n("ta_scale_min", 0.0), taHi, n("ta_scale_step", 10.0),
+                overLabel = "Over " + whole(taHi),
+            ),
+            cya = scale(
+                cyaLo, cyaHi, n("cya_scale_step", 10.0),
+                underLabel = "Below " + whole(cyaLo),
+                overLabel = "Over " + whole(cyaHi),
+            ),
+            ch = scale(
+                chLo, chHi, n("ch_scale_step", 10.0),
+                underLabel = "Below " + whole(chLo),
+                overLabel = "Over " + whole(chHi),
+            ),
+            swg = scale(0.0, 100.0, n("swg_scale_step", 5.0), suffix = "%"),
         )
     }
 
@@ -181,38 +200,26 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
     // Nothing is preselected. A blank field means "not tested", and defaulting
     // one would quietly invent a reading the user never took.
 
-    private fun edit(which: Which, block: (Field) -> Field) = _state.update { s ->
+    enum class Which { PH, FC, TC, TA, CYA, CH, SWG }
+
+    fun setValue(which: Which, value: String) = _state.update { s ->
         val f = s.form
         s.copy(
             form = when (which) {
-                Which.PH -> f.copy(ph = block(f.ph))
-                Which.FC -> f.copy(fc = block(f.fc))
-                Which.TC -> f.copy(tc = block(f.tc))
-                Which.TA -> f.copy(ta = block(f.ta))
-                Which.CYA -> f.copy(cya = block(f.cya))
-                Which.CH -> f.copy(ch = block(f.ch))
+                Which.PH -> f.copy(ph = value)
+                Which.FC -> f.copy(fc = value)
+                Which.TC -> f.copy(tc = value)
+                Which.TA -> f.copy(ta = value)
+                Which.CYA -> f.copy(cya = value)
+                Which.CH -> f.copy(ch = value)
+                Which.SWG -> f.copy(swg = value)
             },
         )
-    }
-
-    enum class Which { PH, FC, TC, TA, CYA, CH }
-
-    fun setValue(which: Which, value: String) = edit(which) { it.copy(value = value) }
-
-    /** Under and over are mutually exclusive, and either clears the value. */
-    fun setUnder(which: Which, on: Boolean) = edit(which) {
-        Field(value = if (on) "" else it.value, under = on, over = if (on) false else it.over)
-    }
-
-    fun setOver(which: Which, on: Boolean) = edit(which) {
-        Field(value = if (on) "" else it.value, under = if (on) false else it.under, over = on)
     }
 
     fun setSalt(text: String) = _state.update { s ->
         s.copy(form = s.form.copy(salt = text.filter { it.isDigit() }.take(5)))
     }
-
-    fun setSwg(value: String) = _state.update { s -> s.copy(form = s.form.copy(swg = value)) }
 
     fun setNote(text: String) = _state.update { s ->
         s.copy(form = s.form.copy(note = text.take(500)))
@@ -229,22 +236,27 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         }
         viewModelScope.launch {
             _state.update { it.copy(saving = true, error = null) }
+            // A sentinel sets its flag; anything else is a value. Never both,
+            // because the server rejects a row carrying a flag and a value.
+            fun num(v: String) = if (v == UNDER || v == OVER) null else v.toIntOrNull()
+            fun flag(v: String, sentinel: String) = if (v == sentinel) 1 else null
+
             val req = ChemReadingRequest(
-                ph = f.ph.value.toDoubleOrNull(),
-                phBelow7 = if (f.ph.under) 1 else null,
-                phOver = if (f.ph.over) 1 else null,
-                fc = f.fc.value.toIntOrNull(),
-                fcOver = if (f.fc.over) 1 else null,
-                tc = f.tc.value.toIntOrNull(),
-                tcOver = if (f.tc.over) 1 else null,
-                ta = f.ta.value.toIntOrNull(),
-                taOver = if (f.ta.over) 1 else null,
-                cya = f.cya.value.toIntOrNull(),
-                cyaBelow30 = if (f.cya.under) 1 else null,
-                cyaOver = if (f.cya.over) 1 else null,
-                ch = f.ch.value.toIntOrNull(),
-                chUnder = if (f.ch.under) 1 else null,
-                chOver = if (f.ch.over) 1 else null,
+                ph = if (f.ph == UNDER || f.ph == OVER) null else f.ph.toDoubleOrNull(),
+                phBelow7 = flag(f.ph, UNDER),
+                phOver = flag(f.ph, OVER),
+                fc = num(f.fc),
+                fcOver = flag(f.fc, OVER),
+                tc = num(f.tc),
+                tcOver = flag(f.tc, OVER),
+                ta = num(f.ta),
+                taOver = flag(f.ta, OVER),
+                cya = num(f.cya),
+                cyaBelow30 = flag(f.cya, UNDER),
+                cyaOver = flag(f.cya, OVER),
+                ch = num(f.ch),
+                chUnder = flag(f.ch, UNDER),
+                chOver = flag(f.ch, OVER),
                 salt = f.salt.toIntOrNull(),
                 swgPct = f.swg.toIntOrNull(),
                 note = f.note.ifBlank { null },
@@ -265,8 +277,15 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         }
     }
 
-    /** Record that a recommended dose was actually added. Feeds calibration. */
-    fun logDose(action: ChemAction, readingId: Int?) {
+    /**
+     * Record that a recommended dose was actually added.
+     *
+     * `ts` is when it went in the water, which is not necessarily when the
+     * button was tapped. Calibration pairs are matched in hours, so a morning
+     * dose recorded at bedtime would skew the learned multiplier. Null means
+     * now.
+     */
+    fun logDose(action: ChemAction, readingId: Int?, ts: Long? = null) {
         val a = api ?: return
         val product = action.product ?: return
         val amount = action.amount ?: return
@@ -275,8 +294,8 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
                 a.postChemDose(
                     ChemDoseRequest(
                         product = product, amount = amount,
-                        unit = action.unit ?: "", readingId = readingId,
-                        recommendedAmount = amount,
+                        unit = action.unit ?: "", ts = ts,
+                        readingId = readingId, recommendedAmount = amount,
                     ),
                 )
             }.fold(
@@ -316,8 +335,11 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         e is HttpException && e.code() == 400 ->
             runCatching { e.response()?.errorBody()?.string() }
                 .getOrNull()
-                ?.let { body -> Regex("\"([^\"]*must[^\"]*)\"").find(body)?.groupValues?.get(1) }
-                ?: "That reading was rejected. Check the values."
+                ?.let { body ->
+                    Regex("\"([^\"]*(?:must|cannot|implausibly)[^\"]*)\"")
+                        .find(body)?.groupValues?.get(1)
+                }
+                ?: "That was rejected. Check the values."
         else -> e.message ?: e::class.simpleName ?: "Network error"
     }
 }

@@ -209,6 +209,9 @@ data class ChemDoseRequest(
     val product: String,
     val amount: Double,
     val unit: String,
+    /** When it actually went in. Omitted means now. Calibration matches pairs
+     *  in hours, so recording a morning dose at bedtime skews the multiplier. */
+    val ts: Long? = null,
     @SerialName("reading_id") val readingId: Int? = null,
     @SerialName("recommended_amount") val recommendedAmount: Double? = null,
     val source: String = "app",

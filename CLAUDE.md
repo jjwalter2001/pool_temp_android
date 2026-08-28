@@ -99,8 +99,17 @@ interceptor covers it.
   on 7.999999999999999 and the option stops matching what the server stores.
 - **Nothing is preselected.** A blank field means "not tested"; defaulting one
   would quietly invent a reading the user never took.
-- Each parameter can fall off either end of its scale, and under/over are
-  mutually exclusive with each other and with a value.
+- **Off-scale readings are entries in the dropdown, not checkboxes.** One
+  control per parameter, so "Below 6.8" cannot contradict a value the way a
+  checkbox beside a filled field could. `UNDER`/`OVER` are UI-only sentinels
+  that map onto the flag columns at save time; a field is one string that is
+  blank, a number, or a sentinel.
+- **Recording a dose asks when it actually went in.** The timestamp is what
+  calibration pairs are matched on, in hours, so "now" is wrong every time the
+  pour and the tap happen at different points in the day. Today keeps the real
+  clock time; an earlier date resolves to midday, matching the importer's
+  convention for a date-only row. Future dates are unselectable in the picker
+  and rejected by the server.
 - Chemistry is fetched in the dashboard's phase-A block wrapped in
   `runCatching`, like lightning: an older backend 404s and the card just does
   not render.

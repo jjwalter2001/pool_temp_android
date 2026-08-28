@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,13 +24,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -64,7 +65,6 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jjwalter.pooltemp.data.ChemAction
 import com.jjwalter.pooltemp.data.ChemLatest
 import com.jjwalter.pooltemp.data.Settings
-import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Field
 import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Scale
 import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Which
 import com.jjwalter.pooltemp.ui.theme.ChemAccent
@@ -74,6 +74,12 @@ import com.jjwalter.pooltemp.ui.theme.ChemOk
 import com.jjwalter.pooltemp.ui.theme.ChemUnknown
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
+import java.time.Instant
+import java.time.LocalDate
+import java.time.LocalTime
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private val PARAM_LABELS = listOf(
@@ -169,28 +175,127 @@ fun ChemistryScreen(
     }
 
     confirmDose?.let { action ->
-        val label = state.productLabels[action.product] ?: action.product.orEmpty()
-        AlertDialog(
-            onDismissRequest = { confirmDose = null },
-            title = { Text("Record this addition?") },
-            text = {
-                Text(
-                    "Logs ${fmtAmount(action.amount)} ${action.unit.orEmpty()} of $label as " +
-                        "actually added. This is what teaches the app how your " +
-                        "products behave, so only confirm once it is in the water.",
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.logDose(action, state.latest?.readingId)
-                    confirmDose = null
-                }) { Text("Record") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDose = null }) { Text("Cancel") }
+        RecordDoseDialog(
+            action = action,
+            productLabel = state.productLabels[action.product] ?: action.product.orEmpty(),
+            onDismiss = { confirmDose = null },
+            onConfirm = { ts ->
+                vm.logDose(action, state.latest?.readingId, ts)
+                confirmDose = null
             },
         )
     }
+}
+
+/**
+ * Confirms a dose and asks when it actually went in.
+ *
+ * The timestamp is what calibration pairs are matched on, in hours, so "now"
+ * would be wrong every time the pour and the tap happen at different points in
+ * the day. Today keeps the real clock time; an earlier date resolves to midday,
+ * matching the importer's convention for a date-only row.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RecordDoseDialog(
+    action: ChemAction,
+    productLabel: String,
+    onDismiss: () -> Unit,
+    onConfirm: (Long?) -> Unit,
+) {
+    val today = remember { LocalDate.now() }
+    var chosen by remember { mutableStateOf(today) }
+    var showPicker by remember { mutableStateOf(false) }
+    val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()) }
+
+    if (showPicker) {
+        val pickerState = rememberDatePickerState(
+            initialSelectedDateMillis = chosen
+                .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli(),
+            // A dose cannot have gone in tomorrow; the server rejects it too.
+            selectableDates = remember {
+                object : androidx.compose.material3.SelectableDates {
+                    override fun isSelectableDate(utcTimeMillis: Long): Boolean =
+                        utcTimeMillis <= today.plusDays(1)
+                            .atStartOfDay(ZoneOffset.UTC).toInstant().toEpochMilli()
+                }
+            },
+        )
+        DatePickerDialog(
+            onDismissRequest = { showPicker = false },
+            confirmButton = {
+                TextButton(onClick = {
+                    pickerState.selectedDateMillis?.let { millis ->
+                        // The picker reports UTC midnight; read the calendar
+                        // date off it in UTC or it slips a day west of London.
+                        chosen = Instant.ofEpochMilli(millis)
+                            .atZone(ZoneOffset.UTC).toLocalDate()
+                    }
+                    showPicker = false
+                }) { Text("OK") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) { Text("Cancel") }
+            },
+        ) { DatePicker(state = pickerState) }
+        return
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Record this addition?") },
+        text = {
+            Column {
+                Text(
+                    "Logs ${fmtAmount(action.amount)} ${action.unit.orEmpty()} of " +
+                        "$productLabel as actually added. This is what teaches the " +
+                        "app how your products behave, so only confirm once it is " +
+                        "in the water.",
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    "When did you add it?",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = PoolOnSurface,
+                )
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(
+                        selected = chosen == today,
+                        onClick = { chosen = today },
+                        label = { Text("Today") },
+                    )
+                    FilterChip(
+                        selected = chosen == today.minusDays(1),
+                        onClick = { chosen = today.minusDays(1) },
+                        label = { Text("Yesterday") },
+                    )
+                    FilterChip(
+                        selected = chosen != today && chosen != today.minusDays(1),
+                        onClick = { showPicker = true },
+                        label = {
+                            Text(
+                                if (chosen != today && chosen != today.minusDays(1))
+                                    chosen.format(fmt) else "Earlier",
+                            )
+                        },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = {
+                val ts = if (chosen == today) {
+                    null // now, which is the accurate answer for today
+                } else {
+                    chosen.atTime(LocalTime.NOON)
+                        .atZone(ZoneId.systemDefault()).toEpochSecond()
+                }
+                onConfirm(ts)
+            }) { Text("Record") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -403,33 +508,12 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
             )
             Spacer(Modifier.height(16.dp))
 
-            ScaleField(
-                "pH", sc.ph, f.ph, { vm.setValue(Which.PH, it) },
-                underLabel = "Below ${sc.ph.low}", onUnder = { vm.setUnder(Which.PH, it) },
-                overLabel = "Above ${sc.ph.high}", onOver = { vm.setOver(Which.PH, it) },
-            )
-            ScaleField(
-                "Free chlorine", sc.cl, f.fc, { vm.setValue(Which.FC, it) },
-                overLabel = "Over ${sc.cl.high}", onOver = { vm.setOver(Which.FC, it) },
-            )
-            ScaleField(
-                "Total chlorine", sc.cl, f.tc, { vm.setValue(Which.TC, it) },
-                overLabel = "Over ${sc.cl.high}", onOver = { vm.setOver(Which.TC, it) },
-            )
-            ScaleField(
-                "Alkalinity", sc.ta, f.ta, { vm.setValue(Which.TA, it) },
-                overLabel = "Over ${sc.ta.high}", onOver = { vm.setOver(Which.TA, it) },
-            )
-            ScaleField(
-                "Cyanuric acid", sc.cya, f.cya, { vm.setValue(Which.CYA, it) },
-                underLabel = "Below ${sc.cya.low}", onUnder = { vm.setUnder(Which.CYA, it) },
-                overLabel = "Over ${sc.cya.high}", onOver = { vm.setOver(Which.CYA, it) },
-            )
-            ScaleField(
-                "Calcium hardness", sc.ch, f.ch, { vm.setValue(Which.CH, it) },
-                underLabel = "Below ${sc.ch.low}", onUnder = { vm.setUnder(Which.CH, it) },
-                overLabel = "Over ${sc.ch.high}", onOver = { vm.setOver(Which.CH, it) },
-            )
+            DropdownField("pH", sc.ph, f.ph) { vm.setValue(Which.PH, it) }
+            DropdownField("Free chlorine", sc.cl, f.fc) { vm.setValue(Which.FC, it) }
+            DropdownField("Total chlorine", sc.cl, f.tc) { vm.setValue(Which.TC, it) }
+            DropdownField("Alkalinity", sc.ta, f.ta) { vm.setValue(Which.TA, it) }
+            DropdownField("Cyanuric acid", sc.cya, f.cya) { vm.setValue(Which.CYA, it) }
+            DropdownField("Calcium hardness", sc.ch, f.ch) { vm.setValue(Which.CH, it) }
 
             // Salt stays typed: the cell display gives a precise value like
             // 3250, and a dropdown would round away real precision.
@@ -441,7 +525,7 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
-            DropdownField("SWG output %", sc.swg.options, f.swg, vm::setSwg, suffix = "%")
+            DropdownField("SWG output %", sc.swg, f.swg) { vm.setValue(Which.SWG, it) }
             OutlinedTextField(
                 value = f.note,
                 onValueChange = vm::setNote,
@@ -466,84 +550,48 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
     }
 }
 
-/** A dropdown plus its off-scale checkboxes. Checking one clears the value. */
-@Composable
-private fun ScaleField(
-    label: String,
-    scale: Scale,
-    field: Field,
-    onValue: (String) -> Unit,
-    underLabel: String? = null,
-    onUnder: ((Boolean) -> Unit)? = null,
-    overLabel: String? = null,
-    onOver: ((Boolean) -> Unit)? = null,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        DropdownField(label, scale.options, field.value, onValue, enabled = field.enabled)
-        Row {
-            if (onUnder != null && underLabel != null) {
-                CensorBox(underLabel, field.under, onUnder)
-                Spacer(Modifier.width(12.dp))
-            }
-            if (onOver != null && overLabel != null) {
-                CensorBox(overLabel, field.over, onOver)
-            }
-        }
-    }
-}
-
-@Composable
-private fun CensorBox(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        Checkbox(
-            checked = checked,
-            onCheckedChange = onChange,
-            colors = CheckboxDefaults.colors(checkedColor = ChemAccent),
-            modifier = Modifier.size(36.dp),
-        )
-        Spacer(Modifier.width(4.dp))
-        Text(label, style = MaterialTheme.typography.bodySmall, color = PoolOnSurfaceMuted)
-    }
-}
-
+/**
+ * One control per parameter. Off-scale readings are entries in the list, so
+ * picking "Below 6.8" cannot contradict a value the way a checkbox beside a
+ * filled field could.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DropdownField(
     label: String,
-    options: List<String>,
+    scale: Scale,
     value: String,
     onValue: (String) -> Unit,
-    enabled: Boolean = true,
-    suffix: String = "",
 ) {
     var open by remember { mutableStateOf(false) }
+    val shown = scale.options.firstOrNull { it.value == value }?.label ?: ""
     ExposedDropdownMenuBox(
-        expanded = open && enabled,
-        onExpandedChange = { if (enabled) open = it },
-        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+        expanded = open,
+        onExpandedChange = { open = it },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
     ) {
         OutlinedTextField(
-            value = if (value.isBlank()) "" else value + suffix,
+            value = shown,
             onValueChange = {},
             readOnly = true,
-            enabled = enabled,
             label = { Text(label) },
+            placeholder = { Text("Not tested", color = PoolOnSurfaceMuted) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
             modifier = Modifier
                 .menuAnchor(MenuAnchorType.PrimaryNotEditable)
                 .fillMaxWidth(),
         )
-        ExposedDropdownMenu(expanded = open && enabled, onDismissRequest = { open = false }) {
+        ExposedDropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             // A blank first entry is how a value gets cleared back to
             // "not tested" without resetting the whole form.
             DropdownMenuItem(
                 text = { Text("Not tested", color = PoolOnSurfaceMuted) },
                 onClick = { onValue(""); open = false },
             )
-            options.forEach { opt ->
+            scale.options.forEach { opt ->
                 DropdownMenuItem(
-                    text = { Text(opt + suffix) },
-                    onClick = { onValue(opt); open = false },
+                    text = { Text(opt.label) },
+                    onClick = { onValue(opt.value); open = false },
                 )
             }
         }
