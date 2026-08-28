@@ -71,6 +71,14 @@ interface ApiService {
     @GET("api/chem/history")
     suspend fun chemHistory(@Query("days") days: Int = 3650): List<ChemReading>
 
+    /** Skip a recommendation, or put it back. Returns the refreshed
+     *  recommendation so the caller needs no follow-up fetch. */
+    @POST("api/chem/readings/{id}/dismiss")
+    suspend fun dismissChemAction(
+        @retrofit2.http.Path("id") readingId: Int,
+        @Body req: ChemDismissRequest,
+    ): ChemLatest
+
     @GET("api/chem/config")
     suspend fun chemConfig(): ChemConfig
 }

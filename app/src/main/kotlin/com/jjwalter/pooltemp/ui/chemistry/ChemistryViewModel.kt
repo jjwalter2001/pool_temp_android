@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.jjwalter.pooltemp.data.ApiClient
 import com.jjwalter.pooltemp.data.ApiService
 import com.jjwalter.pooltemp.data.ChemAction
+import com.jjwalter.pooltemp.data.ChemDismissRequest
 import com.jjwalter.pooltemp.data.ChemDoseRequest
 import com.jjwalter.pooltemp.data.ChemLatest
 import com.jjwalter.pooltemp.data.ChemReadingRequest
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
+import kotlin.math.roundToInt
 
 /**
  * Chemistry state + actions.
@@ -26,13 +28,17 @@ import retrofit2.HttpException
 class ChemistryViewModel(private val settings: Settings) : ViewModel() {
 
     /**
-     * One field of the entry form. A censored reading is a flag with no value,
-     * matching the schema: checking the box clears and disables the number.
+     * One field of the entry form.
+     *
+     * A reading is either a value from the scale or an off-scale marker, never
+     * both: the server rejects a row carrying a flag and a value together.
      */
     data class Field(
-        val text: String = "",
-        val censored: Boolean = false,
+        val value: String = "",
+        val under: Boolean = false,
+        val over: Boolean = false,
     ) {
+        val censored: Boolean get() = under || over
         val enabled: Boolean get() = !censored
     }
 
@@ -40,18 +46,34 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         val ph: Field = Field(),
         val fc: Field = Field(),
         val tc: Field = Field(),
+        val ta: Field = Field(),
         val cya: Field = Field(),
-        val ta: String = "",
-        val ch: String = "",
+        val ch: Field = Field(),
         val salt: String = "",
         val swg: String = "",
         val note: String = "",
     ) {
-        /** Nothing to save if every field is blank and no box is ticked. */
         val isEmpty: Boolean
-            get() = listOf(ph, fc, tc, cya).all { it.text.isBlank() && !it.censored } &&
-                listOf(ta, ch, salt, swg).all { it.isBlank() }
+            get() = listOf(ph, fc, tc, ta, cya, ch)
+                .all { it.value.isBlank() && !it.censored } &&
+                salt.isBlank() && swg.isBlank()
     }
+
+    /** The option list and boundary labels for one field, from `pool_config`. */
+    data class Scale(
+        val options: List<String> = emptyList(),
+        val low: String = "",
+        val high: String = "",
+    )
+
+    data class Scales(
+        val ph: Scale = Scale(),
+        val cl: Scale = Scale(),
+        val ta: Scale = Scale(),
+        val cya: Scale = Scale(),
+        val ch: Scale = Scale(),
+        val swg: Scale = Scale(),
+    )
 
     data class UiState(
         val loading: Boolean = true,
@@ -59,9 +81,7 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         val error: String? = null,
         val latest: ChemLatest? = null,
         val form: Form = Form(),
-        /** Set after a successful save so the screen can show the fresh
-         *  recommendation instead of the entry form. */
-        val justSaved: ChemLatest? = null,
+        val scales: Scales = Scales(),
         val doseLogged: Set<Int> = emptySet(),
         val config: Map<String, String> = emptyMap(),
         val productLabels: Map<String, String> = emptyMap(),
@@ -90,14 +110,14 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
             _state.update { it.copy(loading = true, error = null) }
             runCatching { a.chemLatest() }.fold(
                 onSuccess = { latest ->
-                    // Product labels are cosmetic, so a failure here must not
-                    // block the screen; the raw key is a usable fallback.
                     val cfg = runCatching { a.chemConfig() }.getOrNull()
                     _state.update {
+                        val config = cfg?.config ?: it.config
                         it.copy(
                             loading = false,
                             latest = latest,
-                            config = cfg?.config ?: it.config,
+                            config = config,
+                            scales = buildScales(config),
                             productLabels = cfg?.products
                                 ?.associate { p -> p.key to p.label }
                                 ?: it.productLabels,
@@ -111,109 +131,130 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         }
     }
 
+    // ── Scales ───────────────────────────────────────────────────────────
+
+    /**
+     * Build the dropdown options from the server's scale bounds so the app,
+     * the web page, and the engine's off-scale handling all agree.
+     *
+     * Steps are counted by index rather than accumulated: adding 0.1 twelve
+     * times lands on 7.999999999999999, and the option would no longer match
+     * the value the server stores.
+     */
+    private fun buildScales(cfg: Map<String, String>): Scales {
+        fun n(key: String, fallback: Double) = cfg[key]?.toDoubleOrNull() ?: fallback
+        fun steps(lo: Double, hi: Double, step: Double, decimals: Int): List<String> {
+            val count = ((hi - lo) / step).roundToInt()
+            return (0..count).map { i ->
+                val v = lo + i * step
+                if (decimals == 0) v.roundToInt().toString()
+                else String.format(java.util.Locale.US, "%.${decimals}f", v)
+            }
+        }
+
+        val phLo = n("ph_scale_min", 6.8)
+        val phHi = n("ph_scale_max", 8.0)
+        val clHi = n("cl_scale_max", 5.0)
+        val taLo = n("ta_scale_min", 0.0)
+        val taHi = n("ta_scale_max", 150.0)
+        val cyaLo = n("cya_scale_min", 30.0)
+        val cyaHi = n("cya_scale_max", 120.0)
+        val chLo = n("ch_scale_min", 100.0)
+        val chHi = n("ch_scale_max", 400.0)
+
+        fun whole(v: Double) = v.roundToInt().toString()
+        return Scales(
+            ph = Scale(steps(phLo, phHi, n("ph_scale_step", 0.1), 1),
+                String.format(java.util.Locale.US, "%.1f", phLo),
+                String.format(java.util.Locale.US, "%.1f", phHi)),
+            cl = Scale(steps(0.0, clHi, 1.0, 0), "", whole(clHi)),
+            ta = Scale(steps(taLo, taHi, n("ta_scale_step", 10.0), 0), "", whole(taHi)),
+            cya = Scale(steps(cyaLo, cyaHi, n("cya_scale_step", 10.0), 0),
+                whole(cyaLo), whole(cyaHi)),
+            ch = Scale(steps(chLo, chHi, n("ch_scale_step", 10.0), 0),
+                whole(chLo), whole(chHi)),
+            swg = Scale(steps(0.0, 100.0, n("swg_scale_step", 5.0), 0), "", "100"),
+        )
+    }
+
     // ── Form editing ─────────────────────────────────────────────────────
+    // Nothing is preselected. A blank field means "not tested", and defaulting
+    // one would quietly invent a reading the user never took.
 
-    /** pH is stored to one decimal place, so a second digit is refused at the
-     *  keystroke rather than bounced by the server. */
-    fun setPh(text: String) = _state.update { s ->
-        val cleaned = text.filter { it.isDigit() || it == '.' }
-        val dot = cleaned.indexOf('.')
-        val capped = if (dot >= 0 && cleaned.length > dot + 2) cleaned.take(dot + 2) else cleaned
-        s.copy(form = s.form.copy(ph = s.form.ph.copy(text = capped)))
+    private fun edit(which: Which, block: (Field) -> Field) = _state.update { s ->
+        val f = s.form
+        s.copy(
+            form = when (which) {
+                Which.PH -> f.copy(ph = block(f.ph))
+                Which.FC -> f.copy(fc = block(f.fc))
+                Which.TC -> f.copy(tc = block(f.tc))
+                Which.TA -> f.copy(ta = block(f.ta))
+                Which.CYA -> f.copy(cya = block(f.cya))
+                Which.CH -> f.copy(ch = block(f.ch))
+            },
+        )
     }
 
-    /** Chlorine is a whole number 0 through 5, which is all a DPD comparator
-     *  can resolve. */
-    private fun clampChlorine(text: String): String {
-        val digits = text.filter { it.isDigit() }.take(1)
-        return if (digits.toIntOrNull()?.let { it in 0..5 } == true) digits else ""
+    enum class Which { PH, FC, TC, TA, CYA, CH }
+
+    fun setValue(which: Which, value: String) = edit(which) { it.copy(value = value) }
+
+    /** Under and over are mutually exclusive, and either clears the value. */
+    fun setUnder(which: Which, on: Boolean) = edit(which) {
+        Field(value = if (on) "" else it.value, under = on, over = if (on) false else it.over)
     }
 
-    fun setFc(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(fc = s.form.fc.copy(text = clampChlorine(text))))
-    }
-
-    fun setTc(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(tc = s.form.tc.copy(text = clampChlorine(text))))
-    }
-
-    fun setCya(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(cya = s.form.cya.copy(text = text.filter { it.isDigit() })))
-    }
-
-    fun setTa(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(ta = text.filter { it.isDigit() }))
-    }
-
-    fun setCh(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(ch = text.filter { it.isDigit() }))
+    fun setOver(which: Which, on: Boolean) = edit(which) {
+        Field(value = if (on) "" else it.value, under = if (on) false else it.under, over = on)
     }
 
     fun setSalt(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(salt = text.filter { it.isDigit() }))
+        s.copy(form = s.form.copy(salt = text.filter { it.isDigit() }.take(5)))
     }
 
-    fun setSwg(text: String) = _state.update { s ->
-        s.copy(form = s.form.copy(swg = text.filter { it.isDigit() }.take(3)))
-    }
+    fun setSwg(value: String) = _state.update { s -> s.copy(form = s.form.copy(swg = value)) }
 
     fun setNote(text: String) = _state.update { s ->
         s.copy(form = s.form.copy(note = text.take(500)))
-    }
-
-    /** Ticking a censored box clears its value; the two are mutually
-     *  exclusive and the server rejects a row carrying both. */
-    fun setPhBelow7(on: Boolean) = _state.update { s ->
-        s.copy(form = s.form.copy(ph = Field(text = if (on) "" else s.form.ph.text, censored = on)))
-    }
-
-    fun setFcOver(on: Boolean) = _state.update { s ->
-        s.copy(form = s.form.copy(fc = Field(text = if (on) "" else s.form.fc.text, censored = on)))
-    }
-
-    fun setTcOver(on: Boolean) = _state.update { s ->
-        s.copy(form = s.form.copy(tc = Field(text = if (on) "" else s.form.tc.text, censored = on)))
-    }
-
-    fun setCyaBelow30(on: Boolean) = _state.update { s ->
-        s.copy(form = s.form.copy(cya = Field(text = if (on) "" else s.form.cya.text, censored = on)))
     }
 
     // ── Saving ───────────────────────────────────────────────────────────
 
     fun save() {
         val a = api ?: return
-        val form = _state.value.form
-        if (form.isEmpty) {
+        val f = _state.value.form
+        if (f.isEmpty) {
             _state.update { it.copy(error = "Enter at least one reading first.") }
             return
         }
         viewModelScope.launch {
             _state.update { it.copy(saving = true, error = null) }
             val req = ChemReadingRequest(
-                ph = form.ph.text.toDoubleOrNull(),
-                phBelow7 = if (form.ph.censored) 1 else null,
-                fc = form.fc.text.toIntOrNull(),
-                fcOver = if (form.fc.censored) 1 else null,
-                tc = form.tc.text.toIntOrNull(),
-                tcOver = if (form.tc.censored) 1 else null,
-                cya = form.cya.text.toIntOrNull(),
-                cyaBelow30 = if (form.cya.censored) 1 else null,
-                ta = form.ta.toIntOrNull(),
-                ch = form.ch.toIntOrNull(),
-                salt = form.salt.toIntOrNull(),
-                swgPct = form.swg.toIntOrNull(),
-                note = form.note.ifBlank { null },
+                ph = f.ph.value.toDoubleOrNull(),
+                phBelow7 = if (f.ph.under) 1 else null,
+                phOver = if (f.ph.over) 1 else null,
+                fc = f.fc.value.toIntOrNull(),
+                fcOver = if (f.fc.over) 1 else null,
+                tc = f.tc.value.toIntOrNull(),
+                tcOver = if (f.tc.over) 1 else null,
+                ta = f.ta.value.toIntOrNull(),
+                taOver = if (f.ta.over) 1 else null,
+                cya = f.cya.value.toIntOrNull(),
+                cyaBelow30 = if (f.cya.under) 1 else null,
+                cyaOver = if (f.cya.over) 1 else null,
+                ch = f.ch.value.toIntOrNull(),
+                chUnder = if (f.ch.under) 1 else null,
+                chOver = if (f.ch.over) 1 else null,
+                salt = f.salt.toIntOrNull(),
+                swgPct = f.swg.toIntOrNull(),
+                note = f.note.ifBlank { null },
             )
             runCatching { a.postChemReading(req) }.fold(
                 onSuccess = { rec ->
                     _state.update {
                         it.copy(
-                            saving = false,
-                            latest = rec,
-                            justSaved = rec,
-                            form = Form(),
-                            doseLogged = emptySet(),
+                            saving = false, latest = rec,
+                            form = Form(), doseLogged = emptySet(),
                         )
                     }
                 },
@@ -224,38 +265,53 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         }
     }
 
-    /** Record that a recommended dose was actually added. This is what feeds
-     *  the calibration layer, so it matters that it is easy to tap. */
+    /** Record that a recommended dose was actually added. Feeds calibration. */
     fun logDose(action: ChemAction, readingId: Int?) {
         val a = api ?: return
         val product = action.product ?: return
         val amount = action.amount ?: return
         viewModelScope.launch {
-            val req = ChemDoseRequest(
-                product = product,
-                amount = amount,
-                unit = action.unit ?: "",
-                readingId = readingId,
-                recommendedAmount = amount,
-            )
-            runCatching { a.postChemDose(req) }.fold(
+            runCatching {
+                a.postChemDose(
+                    ChemDoseRequest(
+                        product = product, amount = amount,
+                        unit = action.unit ?: "", readingId = readingId,
+                        recommendedAmount = amount,
+                    ),
+                )
+            }.fold(
                 onSuccess = {
                     _state.update { it.copy(doseLogged = it.doseLogged + action.order) }
                     refresh()
                 },
-                onFailure = { e ->
-                    _state.update { it.copy(error = describe(e)) }
-                },
+                onFailure = { e -> _state.update { it.copy(error = describe(e)) } },
             )
         }
     }
 
-    fun dismissSaved() = _state.update { it.copy(justSaved = null) }
+    /**
+     * Skip a recommendation, or put it back.
+     *
+     * Keyed by the action's stable key rather than its position, because the
+     * engine regenerates actions on every fetch and the order shifts as they
+     * come and go.
+     */
+    fun toggleSkip(action: ChemAction, readingId: Int?) {
+        val a = api ?: return
+        val id = readingId ?: return
+        viewModelScope.launch {
+            runCatching {
+                a.dismissChemAction(id, ChemDismissRequest(action.key, !action.dismissed))
+            }.fold(
+                onSuccess = { rec -> _state.update { it.copy(latest = rec) } },
+                onFailure = { e -> _state.update { it.copy(error = describe(e)) } },
+            )
+        }
+    }
 
     fun clearError() = _state.update { it.copy(error = null) }
 
-    /** A 400 from the reading endpoint carries a usable message ("ph must have
-     *  at most one decimal place"), so surface it rather than a status code. */
+    /** A 400 carries a usable message, so surface it rather than a status code. */
     private fun describe(e: Throwable): String = when {
         e is HttpException && e.code() == 400 ->
             runCatching { e.response()?.errorBody()?.string() }

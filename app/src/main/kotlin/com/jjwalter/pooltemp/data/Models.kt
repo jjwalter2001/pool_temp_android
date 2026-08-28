@@ -111,15 +111,20 @@ data class ChemReading(
     val ts: Long? = null,
     val ph: Double? = null,
     @SerialName("ph_below7") val phBelow7: Int = 0,
+    @SerialName("ph_over") val phOver: Int = 0,
     val fc: Int? = null,
     @SerialName("fc_over") val fcOver: Int = 0,
     val tc: Int? = null,
     @SerialName("tc_over") val tcOver: Int = 0,
     val ta: Int? = null,
+    @SerialName("ta_over") val taOver: Int = 0,
     val cya: Int? = null,
     @SerialName("cya_below30") val cyaBelow30: Int = 0,
+    @SerialName("cya_over") val cyaOver: Int = 0,
     val salt: Int? = null,
     val ch: Int? = null,
+    @SerialName("ch_under") val chUnder: Int = 0,
+    @SerialName("ch_over") val chOver: Int = 0,
     @SerialName("swg_pct") val swgPct: Int? = null,
     @SerialName("water_temp_f") val waterTempF: Double? = null,
     val note: String? = null,
@@ -130,6 +135,9 @@ data class ChemReading(
 @Serializable
 data class ChemAction(
     val order: Int = 0,
+    /** Stable identity, used to remember a skip across regenerations. */
+    val key: String = "",
+    val dismissed: Boolean = false,
     val product: String? = null,
     val amount: Double? = null,
     val unit: String? = null,
@@ -165,6 +173,8 @@ data class ChemLatest(
     val blocked: List<ChemBlocked> = emptyList(),
     val warnings: List<String> = emptyList(),
     val lsi: ChemLsi? = null,
+    /** Actions still outstanding, i.e. not skipped. */
+    @SerialName("pending_count") val pendingCount: Int = 0,
     /** Present only on a validation failure. */
     val errors: List<String>? = null,
 )
@@ -175,15 +185,20 @@ data class ChemLatest(
 data class ChemReadingRequest(
     val ph: Double? = null,
     @SerialName("ph_below7") val phBelow7: Int? = null,
+    @SerialName("ph_over") val phOver: Int? = null,
     val fc: Int? = null,
     @SerialName("fc_over") val fcOver: Int? = null,
     val tc: Int? = null,
     @SerialName("tc_over") val tcOver: Int? = null,
     val ta: Int? = null,
+    @SerialName("ta_over") val taOver: Int? = null,
     val cya: Int? = null,
     @SerialName("cya_below30") val cyaBelow30: Int? = null,
+    @SerialName("cya_over") val cyaOver: Int? = null,
     val salt: Int? = null,
     val ch: Int? = null,
+    @SerialName("ch_under") val chUnder: Int? = null,
+    @SerialName("ch_over") val chOver: Int? = null,
     @SerialName("swg_pct") val swgPct: Int? = null,
     val note: String? = null,
     val source: String = "app",
@@ -219,4 +234,10 @@ data class ChemProduct(
 data class ChemConfig(
     val config: Map<String, String> = emptyMap(),
     val products: List<ChemProduct> = emptyList(),
+)
+
+@Serializable
+data class ChemDismissRequest(
+    @SerialName("action_key") val actionKey: String,
+    val dismissed: Boolean = true,
 )

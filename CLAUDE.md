@@ -87,16 +87,34 @@ interceptor covers it.
   read chlorine above 5 ppm, pH below 7, or CYA below 30. Ticking a box clears
   and disables its field; the server rejects a row carrying both, so the two
   must stay mutually exclusive here too.
-- **pH is capped to one decimal at the keystroke** (`setPh`) and chlorine to a
-  single digit 0-5 (`clampChlorine`), mirroring the server's validation so a
-  reading it would reject cannot be typed. The server rejects rather than
-  rounds, so do not "helpfully" round here either.
+- **Entry is dropdowns, not typing.** Values come from fixed scales so a
+  reading the kit cannot produce cannot be entered at all. Salt is the one
+  exception and stays typed: the cell display gives a precise value like 3250
+  and a dropdown would round away real precision.
+- **The scale options are built from `pool_config`** (`ph_scale_min/max/step`
+  and friends) in `ChemistryViewModel.buildScales`, so the app, the web page,
+  and the engine's off-scale handling all read the same numbers. Never
+  hardcode a bound here.
+- Steps are counted by index, not accumulated. Adding 0.1 twelve times lands
+  on 7.999999999999999 and the option stops matching what the server stores.
+- **Nothing is preselected.** A blank field means "not tested"; defaulting one
+  would quietly invent a reading the user never took.
+- Each parameter can fall off either end of its scale, and under/over are
+  mutually exclusive with each other and with a value.
 - Chemistry is fetched in the dashboard's phase-A block wrapped in
   `runCatching`, like lightning: an older backend 404s and the card just does
   not render.
 - Recording a dose gets a confirm dialog because it writes to the calibration
   training set, not because it is dangerous. Only confirm what actually went
   in the water.
+- **Skipping a recommendation** posts the action's stable `key`, never its
+  position: the engine regenerates actions on every fetch and `order` shifts.
+  A skipped action stays on screen with an Undo, so the decision is
+  reversible.
+- **Every endpoint that returns a recommendation returns the reading too.**
+  The VM swaps its whole `latest` for the response, so a bare recommendation
+  makes the status card read "No tests logged yet". That was a real bug; the
+  server now shares one `_full_body()` across all three endpoints.
 - **The history screen is read only on purpose.** Correcting a row means
   seeing its neighbours and retyping carefully, which is a desk job; the web
   page owns editing and deleting. It also means no destructive gesture can

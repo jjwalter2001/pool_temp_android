@@ -3,8 +3,8 @@ package com.jjwalter.pooltemp.ui.chemistry
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,10 +28,14 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -54,11 +58,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jjwalter.pooltemp.data.ChemAction
 import com.jjwalter.pooltemp.data.ChemLatest
 import com.jjwalter.pooltemp.data.Settings
+import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Field
+import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Scale
+import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Which
 import com.jjwalter.pooltemp.ui.theme.ChemAccent
 import com.jjwalter.pooltemp.ui.theme.ChemHigh
 import com.jjwalter.pooltemp.ui.theme.ChemLow
@@ -66,6 +74,7 @@ import com.jjwalter.pooltemp.ui.theme.ChemOk
 import com.jjwalter.pooltemp.ui.theme.ChemUnknown
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
+import java.util.Locale
 
 private val PARAM_LABELS = listOf(
     "ph" to "pH",
@@ -149,6 +158,7 @@ fun ChemistryScreen(
                         labels = state.productLabels,
                         logged = state.doseLogged,
                         onLog = { confirmDose = it },
+                        onSkip = { vm.toggleSkip(it, latest.readingId) },
                     )
                 }
             }
@@ -158,8 +168,6 @@ fun ChemistryScreen(
         }
     }
 
-    // Logging a dose writes to the calibration training set, so it gets the
-    // same confirm step as the heater and lightning controls.
     confirmDose?.let { action ->
         val label = state.productLabels[action.product] ?: action.product.orEmpty()
         AlertDialog(
@@ -196,7 +204,11 @@ private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
     ) {
         Column(Modifier.padding(16.dp)) {
             if (latest.reading == null) {
-                Text("No tests logged yet", style = MaterialTheme.typography.titleMedium, color = PoolOnSurface)
+                Text(
+                    "No tests logged yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = PoolOnSurface,
+                )
                 Spacer(Modifier.height(4.dp))
                 Text(
                     "Add your first below and you will get dosing recommendations straight away.",
@@ -229,8 +241,7 @@ private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 PARAM_LABELS.forEach { (key, label) ->
-                    val st = latest.status[key]
-                    Pill("$label ${valueFor(latest, key)}", statusColor(st))
+                    Pill("$label ${valueFor(latest, key)}", statusColor(latest.status[key]))
                 }
             }
 
@@ -246,16 +257,27 @@ private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
     }
 }
 
-/** Censored readings print the limit that was hit, not a number, because the
- *  kit could not resolve one. */
+/** Off-scale readings print the limit that was hit, never an invented number. */
 private fun valueFor(latest: ChemLatest, key: String): String {
     val r = latest.reading ?: return ""
     return when (key) {
-        "ph" -> if (r.phBelow7 == 1) "<7" else r.ph?.toString() ?: "-"
+        "ph" -> when {
+            r.phBelow7 == 1 -> "low"
+            r.phOver == 1 -> "high"
+            else -> r.ph?.toString() ?: "-"
+        }
         "fc" -> if (r.fcOver == 1) ">5" else r.fc?.toString() ?: "-"
-        "ta" -> r.ta?.toString() ?: "-"
-        "cya" -> if (r.cyaBelow30 == 1) "<30" else r.cya?.toString() ?: "-"
-        "ch" -> r.ch?.toString() ?: "-"
+        "ta" -> if (r.taOver == 1) "high" else r.ta?.toString() ?: "-"
+        "cya" -> when {
+            r.cyaBelow30 == 1 -> "<30"
+            r.cyaOver == 1 -> "high"
+            else -> r.cya?.toString() ?: "-"
+        }
+        "ch" -> when {
+            r.chUnder == 1 -> "low"
+            r.chOver == 1 -> "high"
+            else -> r.ch?.toString() ?: "-"
+        }
         "salt" -> r.salt?.toString() ?: "-"
         else -> "-"
     }
@@ -267,6 +289,7 @@ private fun ActionsCard(
     labels: Map<String, String>,
     logged: Set<Int>,
     onLog: (ChemAction) -> Unit,
+    onSkip: (ChemAction) -> Unit,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -285,69 +308,87 @@ private fun ActionsCard(
                 }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
                     Column(Modifier.weight(1f)) {
-                        Text(headline, style = MaterialTheme.typography.bodyLarge, color = PoolOnSurface, fontWeight = FontWeight.SemiBold)
-                        Text(a.reason, style = MaterialTheme.typography.bodySmall, color = PoolOnSurfaceMuted)
-                        if (a.waitMinutes > 0) {
-                            Text(
-                                "Wait ${a.waitMinutes / 60} h first",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = ChemLow,
-                            )
-                        }
-                        a.note?.takeIf { it.isNotBlank() }?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall, color = PoolOnSurfaceMuted)
+                        Text(
+                            headline,
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = if (a.dismissed) PoolOnSurfaceMuted else PoolOnSurface,
+                            fontWeight = FontWeight.SemiBold,
+                            textDecoration = if (a.dismissed) TextDecoration.LineThrough else null,
+                        )
+                        Text(
+                            a.reason,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = PoolOnSurfaceMuted,
+                            textDecoration = if (a.dismissed) TextDecoration.LineThrough else null,
+                        )
+                        if (!a.dismissed) {
+                            if (a.waitMinutes > 0) {
+                                Text(
+                                    "Wait ${a.waitMinutes / 60} h first",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ChemLow,
+                                )
+                            }
+                            a.note?.takeIf { it.isNotBlank() }?.let {
+                                Text(
+                                    it,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = PoolOnSurfaceMuted,
+                                )
+                            }
                         }
                     }
-                    if (a.product != null && a.amount != null) {
-                        Spacer(Modifier.width(8.dp))
-                        if (logged.contains(a.order)) {
-                            Text("Recorded", style = MaterialTheme.typography.labelMedium, color = ChemOk)
-                        } else {
-                            OutlinedButton(onClick = { onLog(a) }) { Text("Added") }
+                    Spacer(Modifier.width(8.dp))
+                    Column(horizontalAlignment = Alignment.End) {
+                        // A skipped action keeps its Undo so the decision stays
+                        // reversible. Only "Added" disappears, because it is no
+                        // longer the next step.
+                        if (!a.dismissed && a.product != null && a.amount != null) {
+                            if (logged.contains(a.order)) {
+                                Text(
+                                    "Recorded",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = ChemOk,
+                                )
+                            } else {
+                                OutlinedButton(onClick = { onLog(a) }) { Text("Added") }
+                            }
+                        }
+                        TextButton(onClick = { onSkip(a) }) {
+                            Text(if (a.dismissed) "Undo" else "Skip")
                         }
                     }
                 }
                 Spacer(Modifier.height(12.dp))
             }
 
-            latest.blocked.forEach { b ->
-                Surface(
-                    color = ChemLow.copy(alpha = 0.10f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        b.reason,
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ChemLow,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-            }
-
-            latest.warnings.forEach { w ->
-                Surface(
-                    color = ChemHigh.copy(alpha = 0.10f),
-                    shape = RoundedCornerShape(8.dp),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        w,
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = ChemHigh,
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-            }
+            latest.blocked.forEach { Banner(it.reason, ChemLow) }
+            latest.warnings.forEach { Banner(it, ChemHigh) }
         }
     }
 }
 
 @Composable
+private fun Banner(text: String, color: Color) {
+    Surface(
+        color = color.copy(alpha = 0.10f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Text(
+            text,
+            modifier = Modifier.padding(12.dp),
+            style = MaterialTheme.typography.bodySmall,
+            color = color,
+        )
+    }
+    Spacer(Modifier.height(8.dp))
+}
+
+@Composable
 private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState) {
     val f = state.form
+    val sc = state.scales
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -362,44 +403,52 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
             )
             Spacer(Modifier.height(16.dp))
 
-            CensorableField(
-                label = "pH",
-                value = f.ph.text,
-                onValue = vm::setPh,
-                censorLabel = "Below 7",
-                censored = f.ph.censored,
-                onCensor = vm::setPhBelow7,
-                decimal = true,
+            ScaleField(
+                "pH", sc.ph, f.ph, { vm.setValue(Which.PH, it) },
+                underLabel = "Below ${sc.ph.low}", onUnder = { vm.setUnder(Which.PH, it) },
+                overLabel = "Above ${sc.ph.high}", onOver = { vm.setOver(Which.PH, it) },
             )
-            CensorableField(
-                label = "Free chlorine",
-                value = f.fc.text,
-                onValue = vm::setFc,
-                censorLabel = "Over 5",
-                censored = f.fc.censored,
-                onCensor = vm::setFcOver,
+            ScaleField(
+                "Free chlorine", sc.cl, f.fc, { vm.setValue(Which.FC, it) },
+                overLabel = "Over ${sc.cl.high}", onOver = { vm.setOver(Which.FC, it) },
             )
-            CensorableField(
-                label = "Total chlorine",
-                value = f.tc.text,
-                onValue = vm::setTc,
-                censorLabel = "Over 5",
-                censored = f.tc.censored,
-                onCensor = vm::setTcOver,
+            ScaleField(
+                "Total chlorine", sc.cl, f.tc, { vm.setValue(Which.TC, it) },
+                overLabel = "Over ${sc.cl.high}", onOver = { vm.setOver(Which.TC, it) },
             )
-            CensorableField(
-                label = "Cyanuric acid",
-                value = f.cya.text,
-                onValue = vm::setCya,
-                censorLabel = "Below 30",
-                censored = f.cya.censored,
-                onCensor = vm::setCyaBelow30,
+            ScaleField(
+                "Alkalinity", sc.ta, f.ta, { vm.setValue(Which.TA, it) },
+                overLabel = "Over ${sc.ta.high}", onOver = { vm.setOver(Which.TA, it) },
             )
-            PlainField("Alkalinity", f.ta, vm::setTa)
-            PlainField("Calcium hardness", f.ch, vm::setCh)
-            PlainField("Salt (cell display)", f.salt, vm::setSalt)
-            PlainField("SWG output %", f.swg, vm::setSwg)
-            NoteField(value = f.note, onValue = vm::setNote)
+            ScaleField(
+                "Cyanuric acid", sc.cya, f.cya, { vm.setValue(Which.CYA, it) },
+                underLabel = "Below ${sc.cya.low}", onUnder = { vm.setUnder(Which.CYA, it) },
+                overLabel = "Over ${sc.cya.high}", onOver = { vm.setOver(Which.CYA, it) },
+            )
+            ScaleField(
+                "Calcium hardness", sc.ch, f.ch, { vm.setValue(Which.CH, it) },
+                underLabel = "Below ${sc.ch.low}", onUnder = { vm.setUnder(Which.CH, it) },
+                overLabel = "Over ${sc.ch.high}", onOver = { vm.setOver(Which.CH, it) },
+            )
+
+            // Salt stays typed: the cell display gives a precise value like
+            // 3250, and a dropdown would round away real precision.
+            OutlinedTextField(
+                value = f.salt,
+                onValueChange = vm::setSalt,
+                label = { Text("Salt (cell display)") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
+            DropdownField("SWG output %", sc.swg.options, f.swg, vm::setSwg, suffix = "%")
+            OutlinedTextField(
+                value = f.note,
+                onValueChange = vm::setNote,
+                label = { Text("Note") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+            )
 
             Spacer(Modifier.height(16.dp))
             Button(
@@ -417,61 +466,88 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
     }
 }
 
+/** A dropdown plus its off-scale checkboxes. Checking one clears the value. */
 @Composable
-private fun CensorableField(
+private fun ScaleField(
     label: String,
-    value: String,
+    scale: Scale,
+    field: Field,
     onValue: (String) -> Unit,
-    censorLabel: String,
-    censored: Boolean,
-    onCensor: (Boolean) -> Unit,
-    decimal: Boolean = false,
+    underLabel: String? = null,
+    onUnder: ((Boolean) -> Unit)? = null,
+    overLabel: String? = null,
+    onOver: ((Boolean) -> Unit)? = null,
 ) {
     Column(Modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = value,
-            onValueChange = onValue,
-            label = { Text(label) },
-            enabled = !censored,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(
-                keyboardType = if (decimal) KeyboardType.Decimal else KeyboardType.Number,
-            ),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(
-                checked = censored,
-                onCheckedChange = onCensor,
-                colors = CheckboxDefaults.colors(checkedColor = ChemAccent),
-                modifier = Modifier.size(40.dp),
-            )
-            Text(censorLabel, style = MaterialTheme.typography.bodySmall, color = PoolOnSurfaceMuted)
+        DropdownField(label, scale.options, field.value, onValue, enabled = field.enabled)
+        Row {
+            if (onUnder != null && underLabel != null) {
+                CensorBox(underLabel, field.under, onUnder)
+                Spacer(Modifier.width(12.dp))
+            }
+            if (onOver != null && overLabel != null) {
+                CensorBox(overLabel, field.over, onOver)
+            }
         }
     }
 }
 
 @Composable
-private fun PlainField(label: String, value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValue,
-        label = { Text(label) },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-    )
+private fun CensorBox(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Checkbox(
+            checked = checked,
+            onCheckedChange = onChange,
+            colors = CheckboxDefaults.colors(checkedColor = ChemAccent),
+            modifier = Modifier.size(36.dp),
+        )
+        Spacer(Modifier.width(4.dp))
+        Text(label, style = MaterialTheme.typography.bodySmall, color = PoolOnSurfaceMuted)
+    }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun NoteField(value: String, onValue: (String) -> Unit) {
-    OutlinedTextField(
-        value = value,
-        onValueChange = onValue,
-        label = { Text("Note") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-    )
+private fun DropdownField(
+    label: String,
+    options: List<String>,
+    value: String,
+    onValue: (String) -> Unit,
+    enabled: Boolean = true,
+    suffix: String = "",
+) {
+    var open by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = open && enabled,
+        onExpandedChange = { if (enabled) open = it },
+        modifier = Modifier.fillMaxWidth().padding(bottom = 4.dp),
+    ) {
+        OutlinedTextField(
+            value = if (value.isBlank()) "" else value + suffix,
+            onValueChange = {},
+            readOnly = true,
+            enabled = enabled,
+            label = { Text(label) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
+            modifier = Modifier
+                .menuAnchor(MenuAnchorType.PrimaryNotEditable)
+                .fillMaxWidth(),
+        )
+        ExposedDropdownMenu(expanded = open && enabled, onDismissRequest = { open = false }) {
+            // A blank first entry is how a value gets cleared back to
+            // "not tested" without resetting the whole form.
+            DropdownMenuItem(
+                text = { Text("Not tested", color = PoolOnSurfaceMuted) },
+                onClick = { onValue(""); open = false },
+            )
+            options.forEach { opt ->
+                DropdownMenuItem(
+                    text = { Text(opt + suffix) },
+                    onClick = { onValue(opt); open = false },
+                )
+            }
+        }
+    }
 }
 
 @Composable
@@ -486,8 +562,8 @@ private fun Pill(text: String, color: Color) {
     }
 }
 
-/** Doses print as whole numbers when they are whole; "96 oz" not "96.0 oz". */
 private fun fmtAmount(amount: Double?): String {
     if (amount == null) return ""
-    return if (amount % 1.0 == 0.0) amount.toInt().toString() else String.format("%.1f", amount)
+    return if (amount % 1.0 == 0.0) amount.toInt().toString()
+    else String.format(Locale.US, "%.1f", amount)
 }
