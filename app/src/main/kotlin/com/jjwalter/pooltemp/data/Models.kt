@@ -244,3 +244,21 @@ data class ChemDismissRequest(
     @SerialName("action_key") val actionKey: String,
     val dismissed: Boolean = true,
 )
+
+/** A chemical actually added, as read back from the log. */
+@Serializable
+data class ChemDose(
+    val id: Int? = null,
+    val ts: Long? = null,
+    val product: String = "",
+    @SerialName("product_label") val productLabel: String = "",
+    val amount: Double = 0.0,
+    val unit: String = "",
+    @SerialName("reading_id") val readingId: Int? = null,
+    @SerialName("recommended_amount") val recommendedAmount: Double? = null,
+    /** The amount matched what was recommended, which is what makes a dose
+     *  usable as calibration evidence rather than just a log entry. */
+    @SerialName("as_recommended") val asRecommended: Boolean = false,
+    val source: String = "",
+    val note: String? = null,
+)

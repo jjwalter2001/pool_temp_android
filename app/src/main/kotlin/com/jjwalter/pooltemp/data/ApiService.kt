@@ -79,6 +79,10 @@ interface ApiService {
         @Body req: ChemDismissRequest,
     ): ChemLatest
 
+    /** What actually went in the water, oldest first. */
+    @GET("api/chem/doses")
+    suspend fun chemDoses(@Query("days") days: Int = 3650): List<ChemDose>
+
     @GET("api/chem/config")
     suspend fun chemConfig(): ChemConfig
 }

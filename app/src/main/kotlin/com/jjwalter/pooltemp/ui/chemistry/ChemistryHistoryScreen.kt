@@ -1,6 +1,6 @@
 package com.jjwalter.pooltemp.ui.chemistry
 
-import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -15,8 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
@@ -28,6 +26,8 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -45,10 +45,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.jjwalter.pooltemp.data.ChemDose
 import com.jjwalter.pooltemp.data.ChemReading
 import com.jjwalter.pooltemp.data.Settings
+import com.jjwalter.pooltemp.ui.chemistry.ChemistryHistoryViewModel.Tab as HistoryTab
 import com.jjwalter.pooltemp.ui.theme.ChemAccent
 import com.jjwalter.pooltemp.ui.theme.ChemLow
+import com.jjwalter.pooltemp.ui.theme.ChemOk
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurface
 import com.jjwalter.pooltemp.ui.theme.PoolOnSurfaceMuted
 import java.text.SimpleDateFormat
@@ -56,22 +59,25 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Past tests as a grid.
+ * Past tests and past additions, as grids.
  *
- * Column order deliberately matches the Pool Measurements spreadsheet this
- * history was imported from (pH, total chlorine, free chlorine, alkalinity,
- * cyanuric acid, salt, calcium), so scanning it feels like the sheet rather
- * than like a different tool showing the same numbers.
+ * The tests grid's column order deliberately matches the Pool Measurements
+ * spreadsheet this history was imported from, so scanning it feels like the
+ * sheet rather than like a different tool showing the same numbers.
  *
- * The date column is frozen and the rest scroll horizontally as one, sharing a
- * single scroll state with the header, which is the freeze-pane behaviour a
- * spreadsheet gives you. Read only: editing lives on the web page.
+ * In both grids the date column is frozen and the rest scroll horizontally as
+ * one, sharing a single scroll state with the header, which is the freeze-pane
+ * behaviour a spreadsheet gives you. Read only: editing lives on the web page.
  */
 
 private val DATE_W = 74.dp
 private val NARROW = 46.dp
 private val WIDE = 56.dp
 private val NOTE_W = 230.dp
+// Wide enough for the longest seeded product name ("Calcium hardness
+// increaser") and for the AMOUNT heading, which clipped to "AMOUN" at 56dp.
+private val PRODUCT_W = 200.dp
+private val AMOUNT_W = 76.dp
 private val ROW_H = 38.dp
 
 private val GRID_LINE = Color.White.copy(alpha = 0.06f)
@@ -86,15 +92,16 @@ private val HEAD_STYLE = TextStyle(
     letterSpacing = 0.4.sp,
 )
 
-private data class Col(val head: String, val width: Dp, val get: (ChemReading) -> Val)
-
 /** A rendered value plus whether the kit hit its limit reading it. */
 private data class Val(val text: String, val censored: Boolean = false)
 
 private val EMPTY = Val("")
 
+private data class Col(val head: String, val width: Dp, val get: (ChemReading) -> Val)
+
 private fun ph(r: ChemReading): Val = when {
     r.phBelow7 == 1 -> Val("<7", true)
+    r.phOver == 1 -> Val(">8", true)
     r.ph != null -> Val(String.format(Locale.US, "%.1f", r.ph))
     else -> EMPTY
 }
@@ -107,20 +114,34 @@ private fun chlorine(v: Int?, over: Int): Val = when {
 
 private fun cya(r: ChemReading): Val = when {
     r.cyaBelow30 == 1 -> Val("<30", true)
+    r.cyaOver == 1 -> Val(">120", true)
     r.cya != null -> Val(r.cya.toString())
+    else -> EMPTY
+}
+
+private fun ch(r: ChemReading): Val = when {
+    r.chUnder == 1 -> Val("low", true)
+    r.chOver == 1 -> Val("high", true)
+    r.ch != null -> Val(r.ch.toString())
+    else -> EMPTY
+}
+
+private fun ta(r: ChemReading): Val = when {
+    r.taOver == 1 -> Val(">150", true)
+    r.ta != null -> Val(r.ta.toString())
     else -> EMPTY
 }
 
 private fun num(v: Int?): Val = if (v == null) EMPTY else Val(v.toString())
 
-private val COLUMNS = listOf(
+private val TEST_COLUMNS = listOf(
     Col("pH", NARROW) { ph(it) },
     Col("TC", NARROW) { chlorine(it.tc, it.tcOver) },
     Col("FC", NARROW) { chlorine(it.fc, it.fcOver) },
-    Col("TA", NARROW) { num(it.ta) },
+    Col("TA", NARROW) { ta(it) },
     Col("CYA", WIDE) { cya(it) },
     Col("SALT", WIDE) { num(it.salt) },
-    Col("CH", WIDE) { num(it.ch) },
+    Col("CH", WIDE) { ch(it) },
     Col("SWG", WIDE) { r -> r.swgPct?.let { Val("$it%") } ?: EMPTY },
     Col("TEMP", WIDE) { r ->
         r.waterTempF?.let { Val(String.format(Locale.US, "%.0f", it)) } ?: EMPTY
@@ -129,7 +150,10 @@ private val COLUMNS = listOf(
 
 private val DATE_FMT = SimpleDateFormat("d MMM yy", Locale.getDefault())
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+private fun amount(v: Double): String =
+    if (v % 1.0 == 0.0) v.toInt().toString() else String.format(Locale.US, "%.1f", v)
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChemistryHistoryScreen(
     settings: Settings,
@@ -139,15 +163,15 @@ fun ChemistryHistoryScreen(
         viewModel(factory = ChemistryHistoryViewModelFactory(settings))
     val state by vm.state.collectAsState()
 
-    // One scroll state shared by the header and every row keeps the columns
-    // aligned while the grid scrolls sideways.
-    val hScroll = rememberScrollState()
-    val listState = rememberLazyListState()
+    // One scroll state per grid, shared by that grid's header and every row so
+    // the columns stay aligned while it scrolls sideways.
+    val testsScroll = rememberScrollState()
+    val dosesScroll = rememberScrollState()
 
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("Test History") },
+                title = { Text("History") },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Outlined.ArrowBack, contentDescription = "Back")
@@ -159,67 +183,138 @@ fun ChemistryHistoryScreen(
             )
         },
     ) { pad ->
-        when {
-            state.loading -> Box(
-                Modifier.fillMaxSize().padding(pad),
-                contentAlignment = Alignment.Center,
-            ) { CircularProgressIndicator(color = ChemAccent) }
-
-            state.error != null -> Box(
-                Modifier.fillMaxSize().padding(pad).padding(24.dp),
-                contentAlignment = Alignment.Center,
+        Column(Modifier.fillMaxSize().padding(pad)) {
+            TabRow(
+                selectedTabIndex = if (state.tab == HistoryTab.TESTS) 0 else 1,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = ChemAccent,
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        state.error ?: "",
-                        color = PoolOnSurfaceMuted,
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedButton(onClick = vm::load) { Text("Try again") }
-                }
-            }
-
-            state.readings.isEmpty() -> Box(
-                Modifier.fillMaxSize().padding(pad).padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    "No tests logged yet.",
-                    color = PoolOnSurfaceMuted,
-                    style = MaterialTheme.typography.bodyMedium,
+                Tab(
+                    selected = state.tab == HistoryTab.TESTS,
+                    onClick = { vm.setTab(HistoryTab.TESTS) },
+                    text = { Text("Tests (${state.readings.size})") },
+                )
+                Tab(
+                    selected = state.tab == HistoryTab.ADDITIONS,
+                    onClick = { vm.setTab(HistoryTab.ADDITIONS) },
+                    text = { Text("Additions (${state.doses.size})") },
                 )
             }
 
-            else -> Column(Modifier.fillMaxSize().padding(pad)) {
-                HeaderRow(hScroll)
-                HorizontalDivider(color = GRID_LINE)
-                LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(
-                        state.readings,
-                        key = { _, r -> r.id ?: r.ts ?: 0L },
-                    ) { i, r ->
-                        DataRow(r, hScroll, zebra = i % 2 == 1)
-                    }
-                    item {
+            when {
+                state.loading -> Box(
+                    Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) { CircularProgressIndicator(color = ChemAccent) }
+
+                state.error != null -> Box(
+                    Modifier.fillMaxSize().padding(24.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(
-                            "${state.readings.size} tests, newest first. " +
-                                "Swipe sideways for more columns. " +
-                                "Amber values were past what the kit can read. " +
-                                "Editing is on the web page.",
-                            style = MaterialTheme.typography.bodySmall,
+                            state.error ?: "",
                             color = PoolOnSurfaceMuted,
-                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium,
                         )
+                        Spacer(Modifier.height(12.dp))
+                        OutlinedButton(onClick = vm::load) { Text("Try again") }
                     }
                 }
+
+                state.tab == HistoryTab.TESTS ->
+                    TestsGrid(state.readings, testsScroll)
+
+                else -> AdditionsGrid(state.doses, dosesScroll)
             }
         }
     }
 }
 
 @Composable
-private fun HeaderRow(hScroll: ScrollState) {
+private fun TestsGrid(rows: List<ChemReading>, hScroll: ScrollState) {
+    if (rows.isEmpty()) {
+        Empty("No tests logged yet.")
+        return
+    }
+    Column {
+        GridHeader(hScroll, TEST_COLUMNS.map { it.head to it.width }, trailing = "NOTE")
+        HorizontalDivider(color = GRID_LINE)
+        LazyColumn(Modifier.fillMaxSize()) {
+            itemsIndexed(rows, key = { _, r -> r.id ?: r.ts ?: 0L }) { i, r ->
+                GridRow(
+                    date = r.ts,
+                    zebra = i % 2 == 1,
+                    hScroll = hScroll,
+                    cells = TEST_COLUMNS.map { it.get(r) to it.width },
+                    trailing = r.note.orEmpty(),
+                )
+            }
+            item {
+                Footnote(
+                    "${rows.size} tests, newest first. Swipe sideways for more " +
+                        "columns. Amber values were past what the kit can read. " +
+                        "Editing is on the web page.",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdditionsGrid(rows: List<ChemDose>, hScroll: ScrollState) {
+    if (rows.isEmpty()) {
+        Empty("Nothing logged as added yet.")
+        return
+    }
+    Column {
+        GridHeader(
+            hScroll,
+            listOf("AMOUNT" to AMOUNT_W, "PRODUCT" to PRODUCT_W, "REC" to WIDE),
+            trailing = "NOTE",
+        )
+        HorizontalDivider(color = GRID_LINE)
+        LazyColumn(Modifier.fillMaxSize()) {
+            itemsIndexed(rows, key = { _, d -> d.id ?: d.ts ?: 0L }) { i, d ->
+                // The recommended column carries the useful comparison: blank
+                // when nothing was recommended, a tick when the amount matched,
+                // otherwise the number that was suggested instead.
+                val rec = when {
+                    d.recommendedAmount == null -> Val("")
+                    d.asRecommended -> Val("same")
+                    else -> Val(amount(d.recommendedAmount), censored = true)
+                }
+                GridRow(
+                    date = d.ts,
+                    zebra = i % 2 == 1,
+                    hScroll = hScroll,
+                    cells = listOf(
+                        Val("${amount(d.amount)} ${d.unit}") to AMOUNT_W,
+                        Val(d.productLabel) to PRODUCT_W,
+                        rec to WIDE,
+                    ),
+                    trailing = d.note.orEmpty(),
+                    alignFirstStart = true,
+                    okCell = if (d.asRecommended) 2 else -1,
+                )
+            }
+            item {
+                Footnote(
+                    "${rows.size} additions, newest first. REC compares what you " +
+                        "added against what was recommended; a difference is what " +
+                        "teaches the app how your products behave.",
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GridHeader(
+    hScroll: ScrollState,
+    columns: List<Pair<String, Dp>>,
+    trailing: String,
+) {
     Row(
         Modifier.fillMaxWidth().background(HEADER_BG).height(32.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -227,20 +322,24 @@ private fun HeaderRow(hScroll: ScrollState) {
         HeadCell("DATE", DATE_W, TextAlign.Start)
         VLine()
         Row(Modifier.horizontalScroll(hScroll), verticalAlignment = Alignment.CenterVertically) {
-            COLUMNS.forEach {
-                HeadCell(it.head, it.width, TextAlign.End)
+            columns.forEach { (head, w) ->
+                HeadCell(head, w, TextAlign.End)
                 VLine()
             }
-            HeadCell("NOTE", NOTE_W, TextAlign.Start)
+            HeadCell(trailing, NOTE_W, TextAlign.Start)
         }
     }
 }
 
 @Composable
-private fun DataRow(
-    r: ChemReading,
-    hScroll: ScrollState,
+private fun GridRow(
+    date: Long?,
     zebra: Boolean,
+    hScroll: ScrollState,
+    cells: List<Pair<Val, Dp>>,
+    trailing: String,
+    alignFirstStart: Boolean = false,
+    okCell: Int = -1,
 ) {
     Column {
         Row(
@@ -250,10 +349,10 @@ private fun DataRow(
                 .height(ROW_H),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            // Frozen: the date stays put so a row stays identifiable while
-            // the values scroll.
+            // Frozen: the date stays put so a row stays identifiable while the
+            // values scroll.
             Text(
-                r.ts?.let { DATE_FMT.format(Date(it * 1000)) } ?: "?",
+                date?.let { DATE_FMT.format(Date(it * 1000)) } ?: "?",
                 style = CELL_STYLE,
                 color = PoolOnSurface,
                 fontWeight = FontWeight.Medium,
@@ -261,25 +360,28 @@ private fun DataRow(
                 modifier = Modifier.width(DATE_W).padding(horizontal = 6.dp),
             )
             VLine()
-            Row(
-                Modifier.horizontalScroll(hScroll),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                COLUMNS.forEach { col ->
-                    val v = col.get(r)
+            Row(Modifier.horizontalScroll(hScroll), verticalAlignment = Alignment.CenterVertically) {
+                cells.forEachIndexed { i, (v, w) ->
                     Text(
                         v.text,
                         style = CELL_STYLE,
-                        color = if (v.censored) ChemLow else PoolOnSurface,
-                        fontWeight = if (v.censored) FontWeight.SemiBold else FontWeight.Normal,
-                        textAlign = TextAlign.End,
+                        color = when {
+                            i == okCell -> ChemOk
+                            v.censored -> ChemLow
+                            else -> PoolOnSurface
+                        },
+                        fontWeight = if (v.censored || i == okCell) FontWeight.SemiBold
+                        else FontWeight.Normal,
+                        textAlign = if (alignFirstStart && i == 1) TextAlign.Start
+                        else TextAlign.End,
                         maxLines = 1,
-                        modifier = Modifier.width(col.width).padding(horizontal = 6.dp),
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.width(w).padding(horizontal = 6.dp),
                     )
                     VLine()
                 }
                 Text(
-                    r.note.orEmpty(),
+                    trailing,
                     style = CELL_STYLE,
                     color = PoolOnSurfaceMuted,
                     maxLines = 1,
@@ -308,4 +410,21 @@ private fun HeadCell(text: String, width: Dp, align: TextAlign) {
 @Composable
 private fun VLine() {
     Box(Modifier.width(1.dp).height(ROW_H).background(GRID_LINE))
+}
+
+@Composable
+private fun Empty(text: String) {
+    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+        Text(text, color = PoolOnSurfaceMuted, style = MaterialTheme.typography.bodyMedium)
+    }
+}
+
+@Composable
+private fun Footnote(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.bodySmall,
+        color = PoolOnSurfaceMuted,
+        modifier = Modifier.padding(16.dp),
+    )
 }

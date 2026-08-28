@@ -128,6 +128,15 @@ interceptor covers it.
   seeing its neighbours and retyping carefully, which is a desk job; the web
   page owns editing and deleting. It also means no destructive gesture can
   fire from a wet hand at the pool.
+- History has **two tabs**, Tests and Additions, sharing one ViewModel and one
+  fetch. Switching tabs must not trigger a network call; both lists load in
+  parallel up front because they are small.
+- Each grid gets **its own `ScrollState`**. Sharing one between the two would
+  carry a sideways scroll from a nine-column grid into a four-column one and
+  leave it scrolled past its end.
+- The Additions grid's REC column compares what went in against what was
+  recommended. That difference is the calibration signal, so it is surfaced
+  rather than left to arithmetic in the reader's head.
 - History is a **grid, not cards**. Its column order deliberately matches the
   Pool Measurements spreadsheet the data was imported from (pH, TC, FC, TA,
   CYA, salt, CH), so scanning it feels like the sheet rather than like a
