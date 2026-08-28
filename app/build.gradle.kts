@@ -32,8 +32,8 @@ android {
         applicationId = "com.jjwalter.pooltemp"
         minSdk = 26
         targetSdk = 35
-        versionCode = 15
-        versionName = "1.8.0"
+        versionCode = 16
+        versionName = "1.9.0"
     }
 
     signingConfigs {
@@ -95,10 +95,17 @@ android {
         named("main") {
             java.srcDirs("src/main/kotlin")
         }
+        named("test") {
+            java.srcDirs("src/test/kotlin")
+        }
+    }
+    testOptions {
+        unitTests.isReturnDefaultValues = true
     }
 }
 
 dependencies {
+    testImplementation(kotlin("test"))
     // Compose
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.compose.ui)

@@ -99,6 +99,15 @@ interceptor covers it.
   on 7.999999999999999 and the option stops matching what the server stores.
 - **Nothing is preselected.** A blank field means "not tested"; defaulting one
   would quietly invent a reading the user never took.
+- **The entry form's shape comes from the server.** `/api/chem/config` returns
+  field descriptors (label, scale bounds, and which columns a value or an
+  off-scale marker writes to). Adding a parameter is a server change, not an
+  edit in three places. Never hardcode a bound or a flag name here.
+- **`data/ChemEntry.kt` is pure and unit tested** (`src/test/kotlin`, run with
+  `gradlew :app:testDebugUnitTest`). It is the code that decides which column a
+  selection lands in, where a mistake writes plausible-looking but wrong
+  chemistry rather than failing loudly. Keep new mapping logic there, not in
+  the ViewModel or the composable.
 - **Off-scale readings are entries in the dropdown, not checkboxes.** One
   control per parameter, so "Below 6.8" cannot contradict a value the way a
   checkbox beside a filled field could. `UNDER`/`OVER` are UI-only sentinels

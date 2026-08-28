@@ -175,6 +175,8 @@ data class ChemLatest(
     val lsi: ChemLsi? = null,
     /** Actions still outstanding, i.e. not skipped. */
     @SerialName("pending_count") val pendingCount: Int = 0,
+    /** False once the pool is closed: no DUE badge, no overdue nudges. */
+    @SerialName("season_open") val seasonOpen: Boolean = true,
     /** Present only on a validation failure. */
     val errors: List<String>? = null,
 )
@@ -237,6 +239,7 @@ data class ChemProduct(
 data class ChemConfig(
     val config: Map<String, String> = emptyMap(),
     val products: List<ChemProduct> = emptyList(),
+    val fields: List<ChemField> = emptyList(),
 )
 
 @Serializable
@@ -261,4 +264,27 @@ data class ChemDose(
     @SerialName("as_recommended") val asRecommended: Boolean = false,
     val source: String = "",
     val note: String? = null,
+)
+
+/**
+ * One entry field, as described by the server.
+ *
+ * Both clients build their dropdowns and their flag mapping from these, so
+ * "which flag does Below mean for cyanuric acid" is answered once on the
+ * server rather than copied into each client where the copies can drift.
+ */
+@Serializable
+data class ChemField(
+    val key: String,
+    val label: String,
+    @SerialName("value_field") val valueField: String,
+    @SerialName("under_flag") val underFlag: String? = null,
+    @SerialName("over_flag") val overFlag: String? = null,
+    @SerialName("under_label") val underLabel: String? = null,
+    @SerialName("over_label") val overLabel: String? = null,
+    val min: Double = 0.0,
+    val max: Double = 0.0,
+    val step: Double = 1.0,
+    val decimals: Int = 0,
+    val suffix: String = "",
 )

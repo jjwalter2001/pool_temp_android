@@ -32,6 +32,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -65,8 +66,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.jjwalter.pooltemp.data.ChemAction
 import com.jjwalter.pooltemp.data.ChemLatest
 import com.jjwalter.pooltemp.data.Settings
-import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Scale
-import com.jjwalter.pooltemp.ui.chemistry.ChemistryViewModel.Which
+import com.jjwalter.pooltemp.data.ChemEntry
+import com.jjwalter.pooltemp.data.ChemField
 import com.jjwalter.pooltemp.ui.theme.ChemAccent
 import com.jjwalter.pooltemp.ui.theme.ChemHigh
 import com.jjwalter.pooltemp.ui.theme.ChemLow
@@ -154,7 +155,7 @@ fun ChemistryScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             state.latest?.let { latest ->
-                StatusCard(latest, state.config)
+                StatusCard(latest, state.config, vm::setSeasonOpen)
                 if (latest.actions.isNotEmpty() ||
                     latest.blocked.isNotEmpty() ||
                     latest.warnings.isNotEmpty()
@@ -300,9 +301,14 @@ private fun RecordDoseDialog(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
+private fun StatusCard(
+    latest: ChemLatest,
+    config: Map<String, String>,
+    onSeasonChange: (Boolean) -> Unit,
+) {
     val overdueAfter = config["overdue_days"]?.toIntOrNull() ?: 7
     val days = latest.daysSince
+    val closed = !latest.seasonOpen
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -332,11 +338,16 @@ private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
                         else -> "Tested $days days ago"
                     },
                     style = MaterialTheme.typography.titleMedium,
-                    color = if (days != null && days >= overdueAfter) ChemLow else PoolOnSurface,
+                    color = if (!closed && days != null && days >= overdueAfter) ChemLow
+                    else PoolOnSurface,
                 )
-                if (days != null && days >= overdueAfter) {
+                if (!closed && days != null && days >= overdueAfter) {
                     Spacer(Modifier.width(8.dp))
                     Pill("DUE", ChemLow)
+                }
+                if (closed) {
+                    Spacer(Modifier.width(8.dp))
+                    Pill("CLOSED", ChemUnknown)
                 }
             }
             Spacer(Modifier.height(12.dp))
@@ -348,6 +359,17 @@ private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
                 PARAM_LABELS.forEach { (key, label) ->
                     Pill("$label ${valueFor(latest, key)}", statusColor(latest.status[key]))
                 }
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Switch(checked = latest.seasonOpen, onCheckedChange = onSeasonChange)
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    if (closed) "Pool closed. No test reminders." else "Pool open",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = PoolOnSurfaceMuted,
+                )
             }
 
             latest.lsi?.let { lsi ->
@@ -492,8 +514,6 @@ private fun Banner(text: String, color: Color) {
 
 @Composable
 private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState) {
-    val f = state.form
-    val sc = state.scales
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -508,26 +528,28 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
             )
             Spacer(Modifier.height(16.dp))
 
-            DropdownField("pH", sc.ph, f.ph) { vm.setValue(Which.PH, it) }
-            DropdownField("Free chlorine", sc.cl, f.fc) { vm.setValue(Which.FC, it) }
-            DropdownField("Total chlorine", sc.cl, f.tc) { vm.setValue(Which.TC, it) }
-            DropdownField("Alkalinity", sc.ta, f.ta) { vm.setValue(Which.TA, it) }
-            DropdownField("Cyanuric acid", sc.cya, f.cya) { vm.setValue(Which.CYA, it) }
-            DropdownField("Calcium hardness", sc.ch, f.ch) { vm.setValue(Which.CH, it) }
+            // The shape of this form comes from the server, so adding a
+            // parameter is a server change rather than an edit in three places.
+            state.fields.forEach { f ->
+                DropdownField(
+                    field = f,
+                    value = state.selections[f.key].orEmpty(),
+                    onValue = { vm.setValue(f.key, it) },
+                )
+            }
 
             // Salt stays typed: the cell display gives a precise value like
             // 3250, and a dropdown would round away real precision.
             OutlinedTextField(
-                value = f.salt,
+                value = state.salt,
                 onValueChange = vm::setSalt,
                 label = { Text("Salt (cell display)") },
                 singleLine = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                 modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
             )
-            DropdownField("SWG output %", sc.swg, f.swg) { vm.setValue(Which.SWG, it) }
             OutlinedTextField(
-                value = f.note,
+                value = state.note,
                 onValueChange = vm::setNote,
                 label = { Text("Note") },
                 singleLine = true,
@@ -544,7 +566,7 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
                     contentColor = Color.Black,
                 ),
             ) {
-                Text(if (state.saving) "Saving…" else "Save test")
+                Text(if (state.saving) "Saving..." else "Save test")
             }
         }
     }
@@ -553,18 +575,18 @@ private fun EntryCard(vm: ChemistryViewModel, state: ChemistryViewModel.UiState)
 /**
  * One control per parameter. Off-scale readings are entries in the list, so
  * picking "Below 6.8" cannot contradict a value the way a checkbox beside a
- * filled field could.
+ * filled field could. Options come from ChemEntry, which is unit tested.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun DropdownField(
-    label: String,
-    scale: Scale,
+    field: ChemField,
     value: String,
     onValue: (String) -> Unit,
 ) {
     var open by remember { mutableStateOf(false) }
-    val shown = scale.options.firstOrNull { it.value == value }?.label ?: ""
+    val options = remember(field) { ChemEntry.optionsFor(field) }
+    val shown = options.firstOrNull { it.value == value }?.label ?: ""
     ExposedDropdownMenuBox(
         expanded = open,
         onExpandedChange = { open = it },
@@ -574,7 +596,7 @@ private fun DropdownField(
             value = shown,
             onValueChange = {},
             readOnly = true,
-            label = { Text(label) },
+            label = { Text(field.label) },
             placeholder = { Text("Not tested", color = PoolOnSurfaceMuted) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = open) },
             modifier = Modifier
@@ -588,7 +610,7 @@ private fun DropdownField(
                 text = { Text("Not tested", color = PoolOnSurfaceMuted) },
                 onClick = { onValue(""); open = false },
             )
-            scale.options.forEach { opt ->
+            options.forEach { opt ->
                 DropdownMenuItem(
                     text = { Text(opt.label) },
                     onClick = { onValue(opt.value); open = false },

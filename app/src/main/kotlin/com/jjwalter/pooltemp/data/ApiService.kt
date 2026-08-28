@@ -61,7 +61,9 @@ interface ApiService {
     /** Returns the recommendation for the reading just saved, so the entry
      *  screen needs no second round trip at poolside. */
     @POST("api/chem/readings")
-    suspend fun postChemReading(@Body req: ChemReadingRequest): ChemLatest
+    suspend fun postChemReading(
+        @Body req: kotlinx.serialization.json.JsonObject,
+    ): ChemLatest
 
     @POST("api/chem/doses")
     suspend fun postChemDose(@Body req: ChemDoseRequest): ChemDoseResponse
@@ -85,4 +87,7 @@ interface ApiService {
 
     @GET("api/chem/config")
     suspend fun chemConfig(): ChemConfig
+
+    @POST("api/chem/config")
+    suspend fun postChemConfig(@Body values: Map<String, String>): ChemConfig
 }
