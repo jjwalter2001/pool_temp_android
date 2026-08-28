@@ -193,19 +193,6 @@ class ChemistryViewModel(private val settings: Settings) : ViewModel() {
         }
     }
 
-    /** Closing the pool stops the overdue nudges and the DUE badge. */
-    fun setSeasonOpen(open: Boolean) {
-        val a = api ?: return
-        viewModelScope.launch {
-            runCatching {
-                a.postChemConfig(mapOf("season_open" to if (open) "1" else "0"))
-            }.fold(
-                onSuccess = { refresh() },
-                onFailure = { e -> _state.update { it.copy(error = describe(e)) } },
-            )
-        }
-    }
-
     fun clearError() = _state.update { it.copy(error = null) }
 
     /** A 400 carries a usable message, so surface it rather than a status code. */

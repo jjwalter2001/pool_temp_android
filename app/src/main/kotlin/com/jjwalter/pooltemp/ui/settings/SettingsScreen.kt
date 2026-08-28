@@ -27,6 +27,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.jjwalter.pooltemp.data.ApiClient
 import com.jjwalter.pooltemp.data.Settings
 import com.jjwalter.pooltemp.notification.Scheduler
 import com.jjwalter.pooltemp.ui.theme.Danger
@@ -55,6 +57,21 @@ fun SettingsScreen(
     val context = LocalContext.current
 
     var confirmReset by remember { mutableStateOf(false) }
+
+    // Season state is server config, not device config, so it is fetched
+    // rather than read from the DataStore. Null means not loaded or the
+    // backend did not answer, and the card stays hidden rather than showing a
+    // switch that does nothing.
+    var seasonOpen by remember { mutableStateOf<Boolean?>(null) }
+    var seasonBusy by remember { mutableStateOf(false) }
+
+    LaunchedEffect(cfg?.isComplete) {
+        val c = cfg
+        if (c == null || !c.isComplete) return@LaunchedEffect
+        seasonOpen = runCatching {
+            ApiClient.forConfig(c).chemConfig().config["season_open"]
+        }.getOrNull()?.let { it != "0" }
+    }
 
     Scaffold(
         topBar = {
@@ -125,6 +142,57 @@ fun SettingsScreen(
                                 }
                             },
                         )
+                    }
+                }
+            }
+
+            // ── Pool card ──
+            seasonOpen?.let { open ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        SectionHeader("Pool")
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    "Pool is open",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                )
+                                Text(
+                                    "Turning this off stops the overdue-test reminders " +
+                                        "for the winter. A covered pool does not need " +
+                                        "testing, and a reminder that fires all season " +
+                                        "is one you learn to ignore.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Switch(
+                                checked = open,
+                                enabled = !seasonBusy,
+                                onCheckedChange = { wanted ->
+                                    val c = cfg ?: return@Switch
+                                    seasonBusy = true
+                                    scope.launch {
+                                        val ok = runCatching {
+                                            ApiClient.forConfig(c).postChemConfig(
+                                                mapOf(
+                                                    "season_open" to
+                                                        if (wanted) "1" else "0",
+                                                ),
+                                            )
+                                        }.isSuccess
+                                        // Only move the switch if the server took
+                                        // it; otherwise it would lie about state
+                                        // that lives elsewhere.
+                                        if (ok) seasonOpen = wanted
+                                        seasonBusy = false
+                                    }
+                                },
+                            )
+                        }
                     }
                 }
             }

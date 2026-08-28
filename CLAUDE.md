@@ -132,6 +132,12 @@ interceptor covers it.
 - Recording a dose gets a confirm dialog because it writes to the calibration
   training set, not because it is dangerous. Only confirm what actually went
   in the water.
+- **The Pool open switch lives in Settings, not on the chemistry screen.** The
+  chemistry screen reports the state (a CLOSED badge and a line saying where
+  to reopen it) but does not own the control. `SettingsScreen` reads and
+  writes it through `/api/chem/config`, since it is server config rather than
+  device config, and hides the whole card if the backend does not answer
+  rather than showing a switch that does nothing.
 - **"Already added" is server state, never local.** An action carries `done`
   and `done_ts` when its product was recorded against that same reading. The
   app previously tracked this in a `doseLogged` set that vanished on refresh,

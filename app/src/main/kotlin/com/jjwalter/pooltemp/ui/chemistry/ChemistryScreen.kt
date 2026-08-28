@@ -32,7 +32,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -156,7 +155,7 @@ fun ChemistryScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             state.latest?.let { latest ->
-                StatusCard(latest, state.config, vm::setSeasonOpen)
+                StatusCard(latest, state.config)
                 if (latest.actions.isNotEmpty() ||
                     latest.blocked.isNotEmpty() ||
                     latest.warnings.isNotEmpty()
@@ -302,11 +301,7 @@ private fun RecordDoseDialog(
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun StatusCard(
-    latest: ChemLatest,
-    config: Map<String, String>,
-    onSeasonChange: (Boolean) -> Unit,
-) {
+private fun StatusCard(latest: ChemLatest, config: Map<String, String>) {
     val overdueAfter = config["overdue_days"]?.toIntOrNull() ?: 7
     val days = latest.daysSince
     val closed = !latest.seasonOpen
@@ -362,12 +357,12 @@ private fun StatusCard(
                 }
             }
 
-            Spacer(Modifier.height(8.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = latest.seasonOpen, onCheckedChange = onSeasonChange)
-                Spacer(Modifier.width(8.dp))
+            // The control lives in Settings; this screen only reports the
+            // state, so a closed pool says where to reopen it.
+            if (closed) {
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    if (closed) "Pool closed. No test reminders." else "Pool open",
+                    "Closed for the season, so no test reminders. Reopen it in Settings.",
                     style = MaterialTheme.typography.bodySmall,
                     color = PoolOnSurfaceMuted,
                 )
