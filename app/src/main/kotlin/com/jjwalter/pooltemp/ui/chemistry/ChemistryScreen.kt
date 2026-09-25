@@ -179,8 +179,8 @@ fun ChemistryScreen(
             action = action,
             productLabel = state.productLabels[action.product] ?: action.product.orEmpty(),
             onDismiss = { confirmDose = null },
-            onConfirm = { onDate ->
-                vm.logDose(action, state.latest?.readingId, onDate)
+            onConfirm = { amount, onDate ->
+                vm.logDose(action, state.latest?.readingId, amount, onDate)
                 confirmDose = null
             },
         )
@@ -188,7 +188,12 @@ fun ChemistryScreen(
 }
 
 /**
- * Confirms a dose and asks when it actually went in.
+ * Confirms a dose and asks how much went in and when.
+ *
+ * The amount starts at the recommendation but is editable, because what was
+ * actually poured is often a judgement call and it is the real figure that
+ * calibration has to learn from. The recommendation still goes along with it,
+ * so history shows the difference.
  *
  * The timestamp is what calibration pairs are matched on, in hours, so "now"
  * would be wrong every time the pour and the tap happen at different points in
@@ -201,9 +206,12 @@ private fun RecordDoseDialog(
     action: ChemAction,
     productLabel: String,
     onDismiss: () -> Unit,
-    onConfirm: (String?) -> Unit,
+    onConfirm: (amount: Double, onDate: String?) -> Unit,
 ) {
     val today = remember { LocalDate.now() }
+    var amountText by remember { mutableStateOf(ChemEntry.amountText(action.amount)) }
+    val amount = ChemEntry.parseAmount(amountText)
+    val unit = action.unit.orEmpty()
     var chosen by remember { mutableStateOf(today) }
     var showPicker by remember { mutableStateOf(false) }
     val fmt = remember { DateTimeFormatter.ofPattern("EEE d MMM", Locale.getDefault()) }
@@ -247,12 +255,28 @@ private fun RecordDoseDialog(
         text = {
             Column {
                 Text(
-                    "Logs ${action.display ?: "${fmtAmount(action.amount)} " +
-                        action.unit.orEmpty()} of $productLabel as actually " +
-                        "added. This is what teaches the app how your products " +
-                        "behave, so only confirm once it is in the water.",
+                    "Recommended: ${action.display ?: "${fmtAmount(action.amount)} " +
+                        unit} of $productLabel. Record what actually went in; " +
+                        "it is what teaches the app how your products behave.",
                 )
                 Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = amountText,
+                    onValueChange = { amountText = it },
+                    label = { Text("Amount added") },
+                    suffix = { Text(unit) },
+                    singleLine = true,
+                    isError = amount == null,
+                    supportingText = when {
+                        amount == null -> { { Text("Enter an amount above zero") } }
+                        action.amount != null && amount != action.amount ->
+                            { { Text("Differs from the recommendation") } }
+                        else -> null
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "When did you add it?",
                     style = MaterialTheme.typography.labelLarge,
@@ -284,12 +308,14 @@ private fun RecordDoseDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = {
+            TextButton(enabled = amount != null, onClick = {
+                val added = amount ?: return@TextButton
                 // Today keeps the real clock time. An earlier date goes as a
                 // date, for the server to resolve against the pool's timezone;
                 // resolving it here used the phone's zone and filed doses hours
                 // out, sometimes before the very reading they belonged to.
                 onConfirm(
+                    added,
                     if (chosen == today) null
                     else chosen.format(DateTimeFormatter.ISO_LOCAL_DATE),
                 )

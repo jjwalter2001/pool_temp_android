@@ -98,4 +98,26 @@ object ChemEntry {
     /** True when nothing has been entered, so there is nothing to save. */
     fun isEmpty(selections: Map<String, String>, salt: String): Boolean =
         selections.values.all { it.isBlank() } && salt.isBlank()
+
+    /**
+     * The recommended amount as editable text, at full precision.
+     *
+     * Not the one-decimal display rounding: prefilling 0.25 lb as "0.3" and
+     * then recording it unchanged would log a dose nobody poured.
+     */
+    fun amountText(amount: Double?): String {
+        if (amount == null) return ""
+        return java.math.BigDecimal.valueOf(amount).stripTrailingZeros().toPlainString()
+    }
+
+    /**
+     * What the user typed as the amount actually added, or null if it is not a
+     * usable dose. A comma decimal separator is accepted because some keyboards
+     * offer only that. Zero or negative is rejected: it would sit in the
+     * calibration set as a pour that moved the water for free.
+     */
+    fun parseAmount(text: String): Double? {
+        val v = text.trim().replace(',', '.').toDoubleOrNull() ?: return null
+        return if (v.isFinite() && v > 0) v else null
+    }
 }

@@ -182,4 +182,35 @@ class ChemEntryTest {
         // An off-scale marker is a reading, not an empty field.
         assertFalse(ChemEntry.isEmpty(mapOf("ph" to ChemEntry.UNDER), ""))
     }
+
+    // ── Amount actually added ────────────────────────────────────────────
+
+    @Test
+    fun `prefilled amount keeps full precision`() {
+        assertEquals("0.25", ChemEntry.amountText(0.25))
+        assertEquals("128", ChemEntry.amountText(128.0))
+        assertEquals("8.7", ChemEntry.amountText(8.7))
+        assertEquals("", ChemEntry.amountText(null))
+    }
+
+    @Test
+    fun `an unchanged prefill parses back to the recommendation`() {
+        for (a in listOf(0.25, 128.0, 8.7, 1.0 / 3)) {
+            assertEquals(a, ChemEntry.parseAmount(ChemEntry.amountText(a)))
+        }
+    }
+
+    @Test
+    fun `typed amounts parse, including a comma decimal`() {
+        assertEquals(64.0, ChemEntry.parseAmount("64"))
+        assertEquals(2.5, ChemEntry.parseAmount(" 2.5 "))
+        assertEquals(2.5, ChemEntry.parseAmount("2,5"))
+    }
+
+    @Test
+    fun `unusable amounts are rejected`() {
+        for (bad in listOf("", "0", "-3", "abc", "NaN", "Infinity", "1.2.3")) {
+            assertNull(ChemEntry.parseAmount(bad), bad)
+        }
+    }
 }

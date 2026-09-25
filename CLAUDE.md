@@ -126,6 +126,11 @@ interceptor covers it.
   clock time; an earlier date resolves to midday, matching the importer's
   convention for a date-only row. Future dates are unselectable in the picker
   and rejected by the server.
+- **The dose amount is editable.** `RecordDoseDialog` prefills it from
+  `ChemEntry.amountText` (full precision, not `fmtAmount`'s one decimal, or
+  an unchanged 0.25 lb would record as 0.3) and parses it with
+  `ChemEntry.parseAmount`, which rejects zero, negative and non-numeric input
+  and accepts a comma decimal. `recommendedAmount` stays the engine's figure.
 - Chemistry is fetched in the dashboard's phase-A block wrapped in
   `runCatching`, like lightning: an older backend 404s and the card just does
   not render.
